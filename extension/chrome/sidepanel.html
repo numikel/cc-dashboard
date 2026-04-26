@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CC dashboard</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Claude Code analytics</p>
+        <h1>CC dashboard</h1>
+        <p id="statusText" class="status">Checking local service...</p>
+      </header>
+
+      <section class="settings" aria-label="Local API settings">
+        <label for="baseUrl">Local API URL</label>
+        <div class="settings-row">
+          <input id="baseUrl" type="url" autocomplete="off" spellcheck="false" />
+          <button id="saveUrl" type="button">Save</button>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="Overview">
+        <article class="card">
+          <span>Total tokens</span>
+          <strong id="totalTokens">-</strong>
+        </article>
+        <article class="card">
+          <span>Sessions</span>
+          <strong id="sessions">-</strong>
+        </article>
+        <article class="card">
+          <span>Active</span>
+          <strong id="activeSessions">-</strong>
+        </article>
+        <article class="card">
+          <span>Top model</span>
+          <strong id="topModel">-</strong>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="usageHeading">
+        <div class="panel-heading">
+          <h2 id="usageHeading">Plan usage</h2>
+          <span id="usageSource">-</span>
+        </div>
+        <div id="usageRows" class="stack"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="activityHeading">
+        <div class="panel-heading">
+          <h2 id="activityHeading">Active sessions</h2>
+          <button id="syncNow" type="button">Sync</button>
+        </div>
+        <div id="activeList" class="stack"></div>
+        <p id="syncStatus" class="muted"></p>
+      </section>
+
+      <footer>
+        <a id="openDashboard" href="http://localhost:3000" target="_blank" rel="noreferrer">Open full dashboard</a>
+      </footer>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

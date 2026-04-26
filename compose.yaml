@@ -1,0 +1,45 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cc-dashboard:${APP_VERSION:-0.1.0}
+    container_name: cc-dashboard
+    ports:
+      - "127.0.0.1:${HOST_PORT:-3000}:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /data
+      DATABASE_PATH: /data/dashboard.db
+      CLAUDE_DATA_DIR: /claude-data
+      # Default localhost-only. Change to 0.0.0.0 (and update ports binding) to expose to LAN — not recommended.
+      HOSTNAME: 127.0.0.1
+    volumes:
+      - type: bind
+        source: ${CLAUDE_DATA_PATH:?CLAUDE_DATA_PATH must be set in .env (path to your Claude Code data directory)}
+        target: /claude-data
+        read_only: true
+      - type: volume
+        source: dashboard-db
+        target: /data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  dashboard-db:
+    driver: local

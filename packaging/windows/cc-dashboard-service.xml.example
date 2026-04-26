@@ -1,0 +1,22 @@
+<service>
+  <id>cc-dashboard</id>
+  <name>CC dashboard</name>
+  <description>Local Claude Code usage dashboard.</description>
+  <executable>C:\Program Files\nodejs\npm.cmd</executable>
+  <arguments>run start</arguments>
+  <workingdirectory>C:\path\to\CC_dashboard</workingdirectory>
+  <env name="NODE_ENV" value="production" />
+  <env name="PORT" value="3000" />
+  <env name="DATA_DIR" value="%LOCALAPPDATA%\CCDashboard\data" />
+  <env name="DATABASE_PATH" value="%LOCALAPPDATA%\CCDashboard\data\dashboard.db" />
+  <env name="CLAUDE_DATA_DIR" value="%USERPROFILE%\.claude" />
+  <env name="CC_DASHBOARD_ENABLE_DB_LOCK" value="1" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

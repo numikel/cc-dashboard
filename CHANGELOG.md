@@ -1,0 +1,107 @@
+# Changelog
+
+## 0.3.0 — 2026-04-26 — Pre-publication hardening
+
+This release closes the full set of Major findings from the pre-publication hive review (`.ai/temp/reviews/orchestrator-synthesis.md`) plus the residual Critical items not addressed earlier. Test count grew from 91 to 132. See `docs/decisions/0006-schema-versioning-migrations.md` for the new database evolution model.
+
+### Security
+
+- `POST /api/sync` now requires the header `X-Requested-With: cc-dashboard`. Any cross-origin browser request without it is rejected with `403`. The web UI and Chrome side panel already include the header.
+- Concurrent `POST /api/sync` requests reuse the same in-flight `Promise<SyncStatus>` instead of running two indexing passes in parallel.
+- Error messages flowing through `/api/sync` and `sync_files.last_error` are sanitized: absolute Windows/POSIX paths, HOME/USERPROFILE references, USERNAME mentions and long quoted JSON fragments are stripped, and the result is truncated to 256 characters. The `errors[].file` field now contains only a basename.
+- `getSqlite()` adds a re-entry guard to flag any future async refactor that could re-enter migration concurrently.
+- HTTP response headers harden the runtime: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, restrictive `Permissions-Policy`, and a `Content-Security-Policy` that limits scripts/styles/connections to same-origin (plus `https://api.anthropic.com` for the optional usage API).
+- Docker `HOSTNAME` default flipped from `0.0.0.0` to `127.0.0.1`. LAN exposure now requires explicit opt-in in `compose.yaml` or `docker run`.
+- `compose.yaml` requires `CLAUDE_DATA_PATH` via `${CLAUDE_DATA_PATH:?...}` syntax — missing `.env` produces a clear error rather than a silent empty mount.
+- CI now runs `npm audit --audit-level=high` before lint, blocking high/critical advisories.
+- Dependabot enabled for npm and GitHub Actions (weekly).
+- `Install-Service.ps1` now documents the credential-in-process-args weakness of `-RunAsCurrentUser` and points operators to `docs/runbook.md` for the recommended dedicated low-privilege account workflow.
+- README adds a `> [!WARNING]` callout to the `start:lan` script clarifying that LAN exposure is unauthenticated.
+
+### Privacy
+
+- `assertMetadataOnly` migrated from a 9-key deny-list to an explicit allow-list of safe metadata keys, with a defence-in-depth deny-list (`text`, `body`, `completion`, `thinking`, `output`, `prompt`, `response`, `summary`, `goal`, `outcome`, `messages`, `transcript`, `conversation`).
+- The privacy guard is now invoked on the JSONL ingestion path (`parseJsonLine`). Files containing forbidden content fail closed and are recorded as failures.
+- Tool-use entries inside `content` arrays accept `input` as opaque (tool arguments are never persisted) but still reject any forbidden key alongside.
+- Active-session `name` field capped at 80 characters (`capName()` helper) — defence-in-depth against accidental prompt-content leak through the `~/.claude/sessions/*.json` filename.
+- ADR-0002 updated to enumerate `SAFE_METADATA_KEYS` and document the allow-list contract.
+
+### Architecture
+
+- ADR-0005: external Anthropic usage API integration. `usage-api.ts` now respects the `CC_DASHBOARD_DISABLE_USAGE_API=1` env flag for explicit opt-out; the OAuth token continues to be read per-request and is never persisted.
+- ADR-0006: schema_version migration helper. `src/lib/db/migrate.ts` introduces a `Migration[]` array indexed by integer version; each `up()` runs inside `db.transaction()` and is gated by `pragma user_version`. v1 baseline reuses the existing `CREATE TABLE IF NOT EXISTS` blocks verbatim, so upgrading existing v0.2.x databases is a no-op except for setting `user_version = 1`. Adding a column in the future is a single new entry to the array; rollbacks are forward-only.
+- The migration race window noted by recon (#005) is closed: `client.ts` opens the `Database` exactly once and calls `runMigrations(db)` on the open handle, eliminating the brief gap between the prior secondary `Database` close and the main connection open.
+
+### Performance
+
+- `shouldSkip()` no longer recompiles two prepared statements per JSONL file. `buildShouldSkip()` is called once per sync run, bulk-loads `sync_files` into a `Map<source_file, SyncFileRow>` and returns a closure that does only `Map.get()` per file. With ~1k JSONL files this removes ~2k prepared statement compilations and ~1k SELECTs per sync.
+- `findRepoRoot()` migrated from sync `fs.existsSync`/`statSync` to async `fs.promises.access`, with a module-level `Map<cwd, root>` cache. The function previously blocked the event loop during sync iteration; concurrent API requests no longer stall behind it.
+- `getUsageLimits()` fallback query restricts the scan to the rolling 35-day window via `WHERE started_at >= ?` (`USAGE_QUERY_WINDOW_MS`). Latency no longer scales linearly with total session count.
+- CI restores `.next/cache` between runs (`actions/cache@v4` keyed on `package-lock.json` + source hash), trimming cold-build time materially.
+
+### Accessibility
+
+- `<select>` controls in `RefreshControl` and `ThemeToggle` expose a visible focus ring (`focus-visible:ring-2 ring-offset-1`).
+- The sync error banner in `AppShell` now renders with `role="alert"` and `aria-live="assertive"` so screen readers announce it.
+- `globals.css` honours `prefers-reduced-motion: reduce` by collapsing animation, transition and scroll-behavior durations.
+- Charts (`TokenTimeline`, `ModelBreakdown`) wrap their `ResponsiveContainer` in a `role="img"` element with a dynamic `aria-label` summarising total tokens, date range, and top three data points, plus a `<p className="sr-only">` sibling for screen-reader-only narration. SVG-based Recharts output is now narratable without sighted access.
+- `SessionTable` `<th>` cells declare `scope="col"`, restoring NVDA/JAWS column-association behaviour in table-navigation modes. A subtle `hover:bg-bg-muted` row affordance was added for sighted users.
+- Contrast bumped to ≥4.5:1 for affected pairings: `--color-accent-strong` `#c6613f → #b8572f` (white on accent-strong button), `--color-text-muted` `#73726c → #6a695f` (muted text on muted background).
+- Skeleton list `key={index}` replaced with stable string keys (`stat-skel-${i}`, `usage-skel-${i}`) — avoids the bug-magnet pattern propagating to data-driven lists.
+- `usage-limits-card` skeleton container declares `aria-busy`, the "Refreshing" badge declares `aria-live="polite"`.
+
+### Streaming & SSR
+
+- `src/app/sessions/page.tsx`, `src/app/projects/page.tsx`, `src/app/tokens/page.tsx` are now `async function` route components.
+- New per-route `loading.tsx` files render skeleton UI during SSR data fetching. A new global `src/app/error.tsx` boundary renders a recoverable failure state with a `reset()` button.
+
+### UI
+
+- Recharts `<Tooltip>` instances on the overview charts use theme CSS variables for content/label/item styles, fixing readability in dark mode.
+- Token timeline gradient now uses `useId()` so multiple chart instances on the same page do not collide on the SVG `id`.
+- Tailwind `theme.extend` registers the design-token palette: `accent`, `accent-strong`, `bg`, `bg-muted`, `panel`, `panel-strong`, `text`, `text-muted`, `border`, `border-soft`, `on-accent`, `terminal-text`, plus `rounded-panel`, `shadow-panel`. Components can now use semantic utilities (`bg-accent-strong`, `text-on-accent`, `rounded-panel`) instead of raw `var(--...)` inline styles.
+- New CSS variables: `--color-on-accent`, `--color-terminal-text` (replacing previously hard-coded `#fff` / `#f0eee6`), `--radius-panel`, and a five-step chart palette `--color-chart-1..5` with separate light and dark values. The `model-breakdown.tsx` `COLORS` array now references these CSS vars via inline `style={{ fill: "var(--color-chart-N)" }}` on each `<Cell>`, so dark-mode swap is automatic via `[data-theme]`.
+- README adds a `## Screenshots` section (light + dark table; PNG placeholders pending operator capture).
+
+### Reliability
+
+- `GET /api/health` returns `{ status: "ok", db: "ready" }` (200) on success and `{ status: "error", db: "unavailable" }` (503) when the database probe throws, replacing the previous unhandled exception that surfaced as an HTML 500 page. Docker / WinSW health probes now have a structured contract.
+
+### Developer experience
+
+- SWR revalidation after `/api/sync` is now a single `globalMutate(key => key.startsWith("/api/"))` call rather than per-key mutator threading. `useAutoSync(interval)` no longer accepts a mutator argument; new endpoints are revalidated automatically.
+- `src/lib/config.ts` centralises time-window constants: `SESSION_WINDOW_MS`, `WEEKLY_WINDOW_MS`, `WEEKLY_RESET_DAY_OF_WEEK`, `WEEKLY_RESET_HOUR_UTC`, `USAGE_QUERY_WINDOW_MS`. Magic numbers in `queries.ts` and `usage-limits-card.tsx` were replaced with imports.
+- `OfficialUsageData`, `SyncStatus`, lock-file payloads and active-session JSON files are validated through zod schemas (`OfficialUsageDataSchema`, `SyncStatusSchema`, `LockFileSchema`, `ActiveSessionFileSchema`) before being trusted. Parse failures degrade gracefully (cache miss / treat as fresh state) instead of throwing.
+- `INDEXER_VERSION` constant in `src/lib/sync/indexer.ts` is now annotated with the schema-change rationale it represents.
+
+### Type safety
+
+- `listSessions` and `listProjects` in `src/lib/api/queries.ts` now expose `SessionRow` / `ProjectRow` interfaces and typed return values; the unsafe `as` casts in `src/app/sessions/page.tsx` and `src/app/projects/page.tsx` were removed.
+- `useRefreshInterval` no longer collapses an empty `localStorage` slot to `0`; missing values fall back to `60` (one-minute polling).
+
+### Testing
+
+- New regression suites (initial v0.3.0 draft): `privacy.test.ts` (allow-list + ingestion), `sync-route.test.ts` (CSRF + concurrent mutex), `sanitize-error.test.ts`, `db-client.test.ts`, `a11y.test.tsx`, `hooks.test.tsx`, `usage-api.test.ts`.
+- `@testing-library/user-event@14.6.1` added; `refresh-control.test.tsx`, `theme-toggle.test.tsx`, `a11y.test.tsx` migrated from `fireEvent` to `userEvent` for browser-realistic event sequencing.
+- New: `src/__tests__/hooks/use-theme.test.tsx` (8 tests covering `localStorage` round-trip, `matchMedia` system-preference detection, `setMode` re-render).
+- New: `src/__tests__/hooks/use-auto-sync.test.tsx` (3 tests including a `globalMutate` spy assertion that the post-sync revalidation passes a function key-filter targeting `/api/*`).
+- New: `src/__tests__/lib/migrate.test.ts` (4 tests for `runMigrations` idempotency and `pragma user_version` advancement).
+- `privacy.test.ts` parameterised: 26 new cases (13 forbidden keys × 2 scopes — top-level and nested in `message.content[]`).
+- Total: **132 tests / 20 files (was 91 / 17)** — all green.
+
+## 0.1.0
+
+### Added
+
+- Initial Next.js fullstack dashboard.
+- SQLite metadata index with Drizzle schema and `better-sqlite3` WAL mode.
+- Claude Code JSONL metadata parser.
+- Incremental sync using file `mtime` and size.
+- Metadata-only privacy guard.
+- Overview, sessions, projects, tokens and audit views.
+- Active sessions panel.
+- Refresh intervals: `OFF`, `30 s`, `60 s`, `180 s`, `300 s`.
+- Claude Code documentation-inspired visual system.
+- Theme modes: `light`, `dark`, `system`.
+- Dockerfile and Docker Compose setup for localhost use.
+- Unit and integration tests for parser, privacy, sync, API and UI components.
