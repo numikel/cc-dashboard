@@ -12,8 +12,8 @@ const ActiveSessionFileSchema = z.object({
   status: z.string().optional(),
   pid: z.number().optional(),
   cwd: z.string().optional(),
-  updated_at: z.string().optional(),
-  updatedAt: z.string().optional(),
+  updated_at: z.union([z.string(), z.number()]).optional(),
+  updatedAt: z.union([z.string(), z.number()]).optional(),
   startTime: z.string().optional(),
   endTime: z.string().optional()
 });
@@ -26,6 +26,19 @@ function stringOrNull(value: unknown): string | null {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizedDateStringOrNull(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() ? value : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Support both Unix seconds and milliseconds timestamps from older clients.
+    const asMs = value < 1_000_000_000_000 ? value * 1000 : value;
+    const parsedDate = new Date(asMs);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
+  }
+  return null;
 }
 
 function capName(name: string | null): string | null {
@@ -64,7 +77,7 @@ export async function getActiveSessions(rootDir = getClaudeDataDir()): Promise<A
           status: stringOrNull(data.status),
           pid: numberOrNull(data.pid),
           cwd: stringOrNull(data.cwd),
-          updatedAt: stringOrNull(data.updated_at) ?? stringOrNull(data.updatedAt),
+          updatedAt: normalizedDateStringOrNull(data.updated_at) ?? normalizedDateStringOrNull(data.updatedAt),
           sourceFile
         } satisfies ActiveSession;
       } catch {
