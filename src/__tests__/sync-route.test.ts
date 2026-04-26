@@ -74,6 +74,19 @@ describe("POST /api/sync", () => {
 });
 
 describe("GET /api/sync", () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-sync-route-get-"));
+    process.env.DATABASE_PATH = path.join(tempDir, "dashboard.db");
+  });
+
+  afterEach(() => {
+    closeDbForTests();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    delete process.env.DATABASE_PATH;
+  });
+
   it("returns the last sync status without requiring a CSRF header", () => {
     const response = GET();
     expect(response.status).toBe(200);
