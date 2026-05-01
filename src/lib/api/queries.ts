@@ -1,6 +1,7 @@
 import { getSqlite } from "@/lib/db/client";
 import { getUsageBudgets, SESSION_WINDOW_MS, USAGE_QUERY_WINDOW_MS, WEEKLY_RESET_DAY_OF_WEEK, WEEKLY_RESET_HOUR_UTC } from "@/lib/config";
 import { getOfficialUsageData, type OfficialUsageData } from "@/lib/claude/usage-api";
+import { getRates, computeSessionCost, type PricingMap } from "@/lib/pricing";
 
 export interface OverviewStats {
   sessions: number;
@@ -47,8 +48,11 @@ export interface ProjectRow {
   lastSessionAt: string | null;
 }
 
-export function getOverviewStats(): OverviewStats {
+export function getOverviewStats(since: string | null = null): OverviewStats {
   const sqlite = getSqlite();
+  const whereClause = since ? "WHERE COALESCE(started_at, indexed_at) >= ?" : "";
+  const sinceParams = since ? [since] : [];
+
   const totals = sqlite
     .prepare(
       `SELECT
@@ -59,40 +63,47 @@ export function getOverviewStats(): OverviewStats {
         COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0) AS cacheTokens,
         COALESCE(SUM(tool_calls), 0) AS toolCalls,
         COALESCE(AVG(duration_seconds), 0) AS averageDurationSeconds
-      FROM sessions`
+      FROM sessions
+      ${whereClause}`
     )
-    .get() as Omit<OverviewStats, "projects" | "mostUsedModel" | "timeline" | "modelBreakdown">;
+    .get(...sinceParams) as Omit<OverviewStats, "projects" | "mostUsedModel" | "timeline" | "modelBreakdown">;
 
   const projects = sqlite.prepare("SELECT COUNT(*) AS count FROM projects").get() as { count: number };
   const model = sqlite
     .prepare(
       `SELECT COALESCE(model, 'unknown') AS model, SUM(total_tokens) AS totalTokens
        FROM sessions
+       ${whereClause}
        GROUP BY COALESCE(model, 'unknown')
        ORDER BY totalTokens DESC
        LIMIT 1`
     )
-    .get() as { model: string } | undefined;
+    .get(...sinceParams) as { model: string } | undefined;
 
+  const timelineWhere = since
+    ? "WHERE COALESCE(started_at, indexed_at) >= ?"
+    : "WHERE COALESCE(started_at, indexed_at) IS NOT NULL";
   const timeline = sqlite
     .prepare(
-      `SELECT substr(started_at, 1, 10) AS date, SUM(total_tokens) AS totalTokens, COUNT(*) AS sessions
+      `SELECT substr(COALESCE(started_at, indexed_at), 1, 10) AS date,
+              SUM(total_tokens) AS totalTokens, COUNT(*) AS sessions
        FROM sessions
-       WHERE started_at IS NOT NULL
-       GROUP BY substr(started_at, 1, 10)
+       ${timelineWhere}
+       GROUP BY substr(COALESCE(started_at, indexed_at), 1, 10)
        ORDER BY date ASC
        LIMIT 90`
     )
-    .all() as OverviewStats["timeline"];
+    .all(...sinceParams) as OverviewStats["timeline"];
 
   const modelBreakdown = sqlite
     .prepare(
       `SELECT COALESCE(model, 'unknown') AS model, SUM(total_tokens) AS totalTokens, COUNT(*) AS sessions
        FROM sessions
+       ${whereClause}
        GROUP BY COALESCE(model, 'unknown')
        ORDER BY totalTokens DESC`
     )
-    .all() as OverviewStats["modelBreakdown"];
+    .all(...sinceParams) as OverviewStats["modelBreakdown"];
 
   return {
     ...totals,
@@ -103,7 +114,9 @@ export function getOverviewStats(): OverviewStats {
   };
 }
 
-export function listSessions(limit = 50, offset = 0): SessionRow[] {
+export function listSessions(limit = 50, offset = 0, since: string | null = null): SessionRow[] {
+  const whereClause = since ? "WHERE COALESCE(s.started_at, s.indexed_at) >= ?" : "";
+  const params: (number | string)[] = since ? [since, limit, offset] : [limit, offset];
   return getSqlite()
     .prepare(
       `SELECT
@@ -126,13 +139,16 @@ export function listSessions(limit = 50, offset = 0): SessionRow[] {
         p.path AS projectPath
        FROM sessions s
        JOIN projects p ON p.id = s.project_id
+       ${whereClause}
        ORDER BY COALESCE(s.started_at, s.indexed_at) DESC
        LIMIT ? OFFSET ?`
     )
-    .all(limit, offset) as SessionRow[];
+    .all(...params) as SessionRow[];
 }
 
-export function listProjects(): ProjectRow[] {
+export function listProjects(limit = 50, offset = 0, since: string | null = null): ProjectRow[] {
+  const joinWhere = since ? "AND COALESCE(s.started_at, s.indexed_at) >= ?" : "";
+  const params: (number | string)[] = since ? [since, limit, offset] : [limit, offset];
   return getSqlite()
     .prepare(
       `SELECT
@@ -143,13 +159,14 @@ export function listProjects(): ProjectRow[] {
         p.last_seen_at AS lastSeenAt,
         COUNT(s.id) AS sessions,
         COALESCE(SUM(s.total_tokens), 0) AS totalTokens,
-        MAX(s.started_at) AS lastSessionAt
+        MAX(COALESCE(s.started_at, s.indexed_at)) AS lastSessionAt
        FROM projects p
-       LEFT JOIN sessions s ON s.project_id = p.id
+       LEFT JOIN sessions s ON s.project_id = p.id ${joinWhere}
        GROUP BY p.id
-       ORDER BY totalTokens DESC, p.name ASC`
+       ORDER BY totalTokens DESC, p.name ASC
+       LIMIT ? OFFSET ?`
     )
-    .all() as ProjectRow[];
+    .all(...params) as ProjectRow[];
 }
 
 interface TokenWindowRow {
@@ -308,26 +325,42 @@ function buildOfficialUsageLimits(official: OfficialUsageData, now = new Date())
         percentage: official.weeklyUsage ?? 0,
         resetAt: official.weeklyResetAt ?? null
       }),
-      usageRow({
-        id: "weekly-sonnet",
-        label: "Sonnet only",
-        description: "Official API does not expose per-model weekly utilization here",
-        used: 0,
-        max: 100,
-        resetAt: official.weeklyResetAt ?? null,
-        valueLabel: "N/A",
-        quotaLabel: "Not exposed"
-      }),
-      usageRow({
-        id: "weekly-claude-design",
-        label: "Claude Design",
-        description: "Official API does not expose Claude Design utilization here",
-        used: 0,
-        max: 100,
-        resetAt: official.weeklyResetAt ?? null,
-        valueLabel: "N/A",
-        quotaLabel: "Not exposed"
-      })
+      official.weeklySonnetUsage !== undefined
+        ? percentUsageRow({
+            id: "weekly-sonnet",
+            label: "Sonnet only",
+            description: "Official seven-day Sonnet usage",
+            percentage: official.weeklySonnetUsage,
+            resetAt: official.weeklySonnetResetAt ?? official.weeklyResetAt ?? null
+          })
+        : usageRow({
+            id: "weekly-sonnet",
+            label: "Sonnet only",
+            description: "Not returned by the usage API for this account",
+            used: 0,
+            max: 100,
+            resetAt: official.weeklyResetAt ?? null,
+            valueLabel: "N/A",
+            quotaLabel: "Not exposed"
+          }),
+      official.weeklyClaudeDesignUsage !== undefined
+        ? percentUsageRow({
+            id: "weekly-claude-design",
+            label: "Claude Design",
+            description: "Official seven-day Claude Design usage",
+            percentage: official.weeklyClaudeDesignUsage,
+            resetAt: official.weeklyClaudeDesignResetAt ?? official.weeklyResetAt ?? null
+          })
+        : usageRow({
+            id: "weekly-claude-design",
+            label: "Claude Design",
+            description: "Not returned by the usage API for this account",
+            used: 0,
+            max: 100,
+            resetAt: official.weeklyResetAt ?? null,
+            valueLabel: "N/A",
+            quotaLabel: "Not exposed"
+          })
     ],
     additional: [
       usageRow({
@@ -424,4 +457,216 @@ export async function getUsageLimits(): Promise<UsageLimits> {
     note: "Local estimate from indexed Claude Code metadata. Official usage was unavailable.",
     error: official.error
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cost-aware types and query helpers
+// ---------------------------------------------------------------------------
+
+export interface SessionRowWithCost extends SessionRow {
+  costUsd: number | null;
+}
+
+export interface ProjectRowWithCost extends ProjectRow {
+  totalCostUsd: number | null;
+}
+
+export interface ModelCostRow {
+  model: string;
+  costUsd: number | null;
+  sessions: number;
+  totalTokens: number;
+}
+
+export interface DailyCostRow {
+  date: string;
+  costUsd: number | null;
+}
+
+export interface ProjectCostRow {
+  name: string;
+  path: string;
+  costUsd: number | null;
+  sessions: number;
+}
+
+/**
+ * Convert a window string to a since ISO-8601 timestamp.
+ * Returns null for "all" (no filter).
+ */
+export function windowToSince(window: "1d" | "7d" | "30d" | "all"): string | null {
+  if (window === "all") return null;
+  if (window === "1d") {
+    // "Today" — from local midnight, not rolling 24 h
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    return midnight.toISOString();
+  }
+  const days: Record<string, number> = { "7d": 7, "30d": 30 };
+  return new Date(Date.now() - days[window] * 86400_000).toISOString();
+}
+
+interface RawModelAggRow {
+  model: string;
+  totalInput: number;
+  totalOutput: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  sessions: number;
+}
+
+export function getModelCosts(pricingMap: PricingMap, since: string | null): ModelCostRow[] {
+  const whereClause = since ? "WHERE COALESCE(started_at, indexed_at) >= :since" : "";
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+        COALESCE(model, 'unknown') AS model,
+        SUM(input_tokens)       AS totalInput,
+        SUM(output_tokens)      AS totalOutput,
+        SUM(cache_read_tokens)  AS totalCacheRead,
+        SUM(cache_write_tokens) AS totalCacheWrite,
+        COUNT(*)                AS sessions
+       FROM sessions
+       ${whereClause}
+       GROUP BY COALESCE(model, 'unknown')
+       ORDER BY totalInput + totalOutput DESC`
+    )
+    .all(since ? { since } : {}) as RawModelAggRow[];
+
+  return rows.map((row) => {
+    const rates = getRates(pricingMap, row.model);
+    const costUsd = computeSessionCost(rates, row.totalInput, row.totalOutput, row.totalCacheRead, row.totalCacheWrite);
+    return {
+      model: row.model,
+      costUsd,
+      sessions: row.sessions,
+      totalTokens: row.totalInput + row.totalOutput + row.totalCacheRead + row.totalCacheWrite
+    };
+  });
+}
+
+interface RawDailyAggRow {
+  date: string;
+  model: string;
+  totalInput: number;
+  totalOutput: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+}
+
+export function getDailyCosts(pricingMap: PricingMap, since: string | null): DailyCostRow[] {
+  const whereClause = since
+    ? "WHERE COALESCE(started_at, indexed_at) >= :since"
+    : "";
+
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+        substr(COALESCE(started_at, indexed_at), 1, 10) AS date,
+        COALESCE(model, 'unknown')                       AS model,
+        SUM(input_tokens)                                AS totalInput,
+        SUM(output_tokens)                               AS totalOutput,
+        SUM(cache_read_tokens)                           AS totalCacheRead,
+        SUM(cache_write_tokens)                          AS totalCacheWrite
+       FROM sessions
+       ${whereClause}
+       GROUP BY date, COALESCE(model, 'unknown')
+       ORDER BY date ASC`
+    )
+    .all(since ? { since } : {}) as RawDailyAggRow[];
+
+  // Aggregate per date across models
+  const byDate = new Map<string, number | null>();
+  for (const row of rows) {
+    const rates = getRates(pricingMap, row.model);
+    const rowCost = computeSessionCost(rates, row.totalInput, row.totalOutput, row.totalCacheRead, row.totalCacheWrite);
+    const existing = byDate.get(row.date);
+    if (existing === undefined) {
+      byDate.set(row.date, rowCost);
+    } else if (existing === null || rowCost === null) {
+      // Keep null if either side is unknown
+      byDate.set(row.date, existing === null ? null : rowCost);
+    } else {
+      byDate.set(row.date, existing + rowCost);
+    }
+  }
+
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, costUsd]) => ({ date, costUsd }));
+}
+
+interface RawProjectAggRow {
+  id: string;
+  name: string;
+  path: string;
+  model: string;
+  totalInput: number;
+  totalOutput: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  sessions: number;
+}
+
+export function getTopProjectsByCost(pricingMap: PricingMap, since: string | null, limit = 5): ProjectCostRow[] {
+  const joinWhere = since ? "AND COALESCE(s.started_at, s.indexed_at) >= :since" : "";
+
+  const rows = getSqlite()
+    .prepare(
+      `SELECT
+        p.id,
+        p.name,
+        p.path,
+        COALESCE(s.model, 'unknown')      AS model,
+        COALESCE(SUM(s.input_tokens), 0)       AS totalInput,
+        COALESCE(SUM(s.output_tokens), 0)      AS totalOutput,
+        COALESCE(SUM(s.cache_read_tokens), 0)  AS totalCacheRead,
+        COALESCE(SUM(s.cache_write_tokens), 0) AS totalCacheWrite,
+        COUNT(s.id)                             AS sessions
+       FROM projects p
+       LEFT JOIN sessions s ON s.project_id = p.id ${joinWhere}
+       GROUP BY p.id, COALESCE(s.model, 'unknown')`
+    )
+    .all(since ? { since } : {}) as RawProjectAggRow[];
+
+  // Per-project: sum costs across all model groups
+  const projectMap = new Map<
+    string,
+    { name: string; path: string; costUsd: number | null; sessions: number }
+  >();
+
+  for (const row of rows) {
+    const rates = getRates(pricingMap, row.model);
+    const rowCost = computeSessionCost(rates, row.totalInput, row.totalOutput, row.totalCacheRead, row.totalCacheWrite);
+
+    const existing = projectMap.get(row.id);
+    if (!existing) {
+      projectMap.set(row.id, {
+        name: row.name,
+        path: row.path,
+        costUsd: rowCost,
+        sessions: row.sessions
+      });
+    } else {
+      // Accumulate cost; keep null if any model's cost is unknown
+      const combined =
+        existing.costUsd === null || rowCost === null ? null : existing.costUsd + rowCost;
+      projectMap.set(row.id, {
+        ...existing,
+        costUsd: combined,
+        sessions: existing.sessions + row.sessions
+      });
+    }
+  }
+
+  return Array.from(projectMap.values())
+    .sort((a, b) => {
+      // Sort by cost desc; null costs go last
+      if (a.costUsd === null && b.costUsd === null) return 0;
+      if (a.costUsd === null) return 1;
+      if (b.costUsd === null) return -1;
+      return b.costUsd - a.costUsd;
+    })
+    .slice(0, limit)
+    .map(({ name, path, costUsd, sessions }) => ({ name, path, costUsd, sessions }));
 }

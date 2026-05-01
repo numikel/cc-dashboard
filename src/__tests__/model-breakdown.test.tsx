@@ -43,9 +43,12 @@ describe("ModelBreakdown", () => {
       />
     );
 
-    expect(screen.getByText("Claude Sonnet")).toBeInTheDocument();
-    expect(screen.getByText("Claude Opus")).toBeInTheDocument();
-    expect(screen.getByTestId("model-legend")).toBeInTheDocument();
+    // Model name appears in both the mocked Pie and the custom legend buttons
+    expect(screen.getAllByText("Claude Sonnet").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Claude Opus").length).toBeGreaterThanOrEqual(1);
+    // Custom toggle buttons in the legend
+    expect(screen.getByRole("button", { name: /Hide Claude Sonnet/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Hide Claude Opus/i })).toBeInTheDocument();
     expect(screen.getByText("Percent labels enabled")).toBeInTheDocument();
   });
 });

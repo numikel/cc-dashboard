@@ -1,7 +1,12 @@
+import type { Metadata } from "next";
 import { ModelBreakdown } from "@/components/charts/model-breakdown";
 import { TokenTimeline } from "@/components/charts/token-timeline";
 import { StatCard } from "@/components/stat-card";
 import { getOverviewStats } from "@/lib/api/queries";
+
+export const metadata: Metadata = {
+  title: "Tokens · CC dashboard",
+};
 
 export const dynamic = "force-dynamic";
 

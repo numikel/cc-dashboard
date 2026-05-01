@@ -6,6 +6,15 @@ interface SessionRow {
   durationSeconds: number;
   totalTokens: number;
   toolCalls: number;
+  costUsd?: number | null;
+}
+
+function formatSessionCost(usd: number | null | undefined): string {
+  if (usd == null) return "–";
+  if (usd === 0) return "$0.00";
+  if (usd < 0.001) return `$${usd.toFixed(6)}`;
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
 }
 
 export function SessionTable({ sessions }: { sessions: SessionRow[] }) {
@@ -23,6 +32,7 @@ export function SessionTable({ sessions }: { sessions: SessionRow[] }) {
             <th scope="col" className="px-4 py-3">Started</th>
             <th scope="col" className="px-4 py-3">Duration</th>
             <th scope="col" className="px-4 py-3">Tokens</th>
+            <th scope="col" className="px-4 py-3">Cost</th>
             <th scope="col" className="px-4 py-3">Tools</th>
           </tr>
         </thead>
@@ -34,6 +44,7 @@ export function SessionTable({ sessions }: { sessions: SessionRow[] }) {
               <td className="px-4 py-3 muted">{session.startedAt ? new Date(session.startedAt).toLocaleString() : "unknown"}</td>
               <td className="px-4 py-3 muted">{Math.round(session.durationSeconds / 60)}m</td>
               <td className="px-4 py-3">{session.totalTokens.toLocaleString()}</td>
+              <td className="px-4 py-3 muted">{formatSessionCost(session.costUsd)}</td>
               <td className="px-4 py-3 muted">{session.toolCalls}</td>
             </tr>
           ))}

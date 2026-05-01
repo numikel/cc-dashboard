@@ -5,9 +5,8 @@ import { scanFacetFiles } from "@/lib/claude/scanner";
 import { assertMetadataOnly, FORBIDDEN_METADATA_KEYS } from "@/lib/privacy/assert-metadata-only";
 
 const SAFE_KEYS = new Set([
-  "id",
-  "session_id",
-  "sessionId",
+  // id, session_id, sessionId are read for session identification (see extraction above)
+  // but are not emitted as facet values — excluded here to make intent explicit.
   "status",
   "label",
   "category",
@@ -67,7 +66,7 @@ export async function parseSafeFacetFile(sourceFile: string): Promise<SafeFacet[
     scalarToString((parsed as Record<string, unknown>).sessionId);
 
   return entries.flatMap(([key, value]) => {
-    if (!SAFE_KEYS.has(key) || key === "id" || key === "session_id" || key === "sessionId") {
+    if (!SAFE_KEYS.has(key)) {
       return [];
     }
 

@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.4.0 — 2026-05-01 — Cost estimation & time-range filtering
+
+### Cost estimation
+
+- New pricing engine (`src/lib/pricing/`) fetches LiteLLM public pricing JSON on startup, caches it for 24 hours in the `settings` table, and falls back to static rates for Opus / Sonnet / Haiku when the fetch fails
+- `GET /api/costs?window=` — aggregates cost by model, day and project for the selected time window; returns `totalCostUsd`, `byModel`, `dailyCosts`, `topProjects`, `unknownModels`, `disabledPricing`
+- `GET /api/pricing` — exposes the cached pricing map for debugging
+- Sessions and projects API routes now include `costUsd` / `totalCostUsd` per row
+- Sessions page shows a Cost column; Projects page shows estimated cost per project card
+- `CC_DASHBOARD_DISABLE_PRICING=1` opts out of all pricing fetches (mirrors `CC_DASHBOARD_DISABLE_USAGE_API`)
+
+### New Costs page (`/costs`)
+
+- Daily cost bar chart, cost-by-model donut, top-5 projects by cost table
+- Time-range filter (Today / 7d / 30d / All) shared with Overview
+- Stat tiles: total cost, models priced, unknown models, avg cost per session
+- Notice when models have no pricing data; disclaimer that costs are estimates
+
+### Time-range filter
+
+- Global `TimeRangeFilter` component added to Overview and Costs pages
+- **Today** filter = sessions from local midnight (not rolling 24 h)
+- 7d / 30d = rolling windows; All = no filter
+- All time-filtered queries now use `COALESCE(started_at, indexed_at)` so sessions with a null `started_at` fall back to their index timestamp and are correctly included
+
+### UI improvements
+
+- Header refactored: Settings moved to a collapsible dropdown (sliders icon); Sync is now an icon-only button outside the dropdown
+- Token timeline switched from area chart to bar chart with abbreviated Y-axis (1.5M, 300K)
+- Model breakdown: eight-color visually distinct palette; clickable legend toggles individual models on/off
+
+### Usage API
+
+- `UsageApiResponseSchema` extended with `seven_day_sonnet` and `claude_design` fields; schema uses `.passthrough()` to tolerate future API additions
+- `buildOfficialUsageLimits` now shows real percentage for "Sonnet only" and "Claude Design" when the API returns them (previously hardcoded to N/A)
+
+### Bug fixes
+
+- `totalCostUsd` in `/api/costs` was null whenever any model lacked pricing data; now sums only priced models and lists unknowns separately
+- All overview, cost and project queries used `WHERE started_at >= ?` which silently excluded sessions with `started_at IS NULL`; replaced with `COALESCE(started_at, indexed_at)` throughout
+
+## 0.3.1 — 2026-04-30 — Minor backlog closure
+
+### Architecture
+- Extracted server-only functions (`getDataDir`, `ensureDataDirWritable`, `getDatabasePath`,
+  `getClaudeDataDir`) to `src/lib/server-config.ts` — prevents `node:fs`/`node:os` from
+  reaching client component bundles
+- Added `ON DELETE CASCADE` FK from `sync_files.source_file` to `sessions.source_file`
+  (DB Migration 2) — eliminates orphaned rows on session delete
+- `getDataDir()` now uses three-tier resolution: `DATA_DIR` env > `/data` (Docker) >
+  `os.homedir()/.cc-dashboard` (native fallback); startup writability check added
+  (ADR-0007)
+- Symlinks under `CLAUDE_CONFIG_DIR` are intentionally not followed (documented behavior)
+
+### Backend
+- `src/lib/api/list-params.ts` — new shared Zod helper prevents `LIMIT NaN` bug when
+  `limit`/`offset` query params are invalid strings; used in sessions and projects routes
+- `usage-api.ts` — `readUsageToken()` migrated from `readFileSync` to `fs.promises.readFile`
+- DB lock acquisition: 3 attempts (was 2) with 50 ms back-off between retries on live locks
+- Removed dead `|| key === "id" || key === "session_id" || key === "sessionId"` branches in
+  `facets-parser.ts`; those keys removed from `SAFE_KEYS` for cleaner intent
+
+### Accessibility
+- `ResetCountdown` in `usage-limits-card.tsx`: donut now has static `role="img"` label;
+  visible countdown marked `aria-hidden`; `sr-only` span with `aria-live="polite"` updates
+  at 1-minute granularity instead of every second — eliminates screen-reader noise
+
+### UI
+- Inter loaded via `next/font/google` with CSS variable; `"Anthropic Sans"` removed from
+  font stack (font was declared but never loaded)
+- `hover:opacity-90` added to nav links and Sync button
+- Per-page `<title>` via `generateMetadata` in sessions, projects, and tokens pages
+
+### Extension
+- `sidepanel.js`: `apiUrl()` input is now validated against a localhost allowlist
+  (`localhost` and `127.0.0.1` only, `http:` scheme only) before saving to storage;
+  invalid URLs show an error message and are rejected
+
+## 0.2.0 — (consolidated)
+
+Internal pre-release; commit history was consolidated into the
+`feat: initial public release` commit and shipped as v0.3.0.
+See `docs/decisions/ADR-0001..ADR-0006` for architectural decisions made in this period.
+
 ## 0.3.0 — 2026-04-26 — Pre-publication hardening
 
 This release closes the full set of Major findings from the pre-publication hive review (`.ai/temp/reviews/orchestrator-synthesis.md`) plus the residual Critical items not addressed earlier. Test count grew from 91 to 132. See `docs/decisions/0006-schema-versioning-migrations.md` for the new database evolution model.

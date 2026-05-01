@@ -1,7 +1,6 @@
 "use client";
 
-import { useId } from "react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 interface Point {
   date: string;
@@ -18,9 +17,17 @@ const TOOLTIP_CONTENT_STYLE: React.CSSProperties = {
 const TOOLTIP_LABEL_STYLE: React.CSSProperties = { color: "var(--color-text-muted)" };
 const TOOLTIP_ITEM_STYLE: React.CSSProperties = { color: "var(--color-text)" };
 
-export function TokenTimeline({ data }: { data: Point[] }) {
-  const gradientId = useId();
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return String(value);
+}
 
+function formatTooltipTokens(value: number): string {
+  return value.toLocaleString();
+}
+
+export function TokenTimeline({ data }: { data: Point[] }) {
   if (data.length === 0) {
     return <div className="panel flex h-96 items-center justify-center muted">No timeline data yet.</div>;
   }
@@ -34,24 +41,24 @@ export function TokenTimeline({ data }: { data: Point[] }) {
     <div className="panel h-96 min-w-0 p-5" role="img" aria-label={summary}>
       <p className="sr-only">{summary}</p>
       <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 1, height: 1 }}>
-        <AreaChart data={data}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="5%" stopColor="var(--color-accent)" stopOpacity={0.45} />
-              <stop offset="95%" stopColor="var(--color-accent)" stopOpacity={0.04} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid stroke="var(--color-border-soft)" strokeDasharray="3 3" />
-          <XAxis dataKey="date" stroke="var(--color-text-muted)" />
-          <YAxis stroke="var(--color-text-muted)" />
+        <BarChart data={data} barCategoryGap="30%">
+          <CartesianGrid stroke="var(--color-border-soft)" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="date" stroke="var(--color-text-muted)" tick={{ fontSize: 12 }} />
+          <YAxis
+            stroke="var(--color-text-muted)"
+            tick={{ fontSize: 12 }}
+            tickFormatter={formatTokens}
+            width={48}
+          />
           <Tooltip
             contentStyle={TOOLTIP_CONTENT_STYLE}
             labelStyle={TOOLTIP_LABEL_STYLE}
             itemStyle={TOOLTIP_ITEM_STYLE}
-            cursor={{ stroke: "var(--color-border)", strokeDasharray: "3 3" }}
+            formatter={(value) => [formatTooltipTokens(Number(value)), "Tokens"]}
+            cursor={{ fill: "var(--color-border-soft)", opacity: 0.5 }}
           />
-          <Area dataKey="totalTokens" name="Tokens" stroke="var(--color-accent-strong)" fill={`url(#${gradientId})`} />
-        </AreaChart>
+          <Bar dataKey="totalTokens" name="Tokens" fill="var(--color-accent-strong)" radius={[3, 3, 0, 0]} />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );

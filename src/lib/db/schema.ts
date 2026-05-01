@@ -50,7 +50,9 @@ export const sessions = sqliteTable(
 );
 
 export const syncFiles = sqliteTable("sync_files", {
-  sourceFile: text("source_file").primaryKey(),
+  sourceFile: text("source_file")
+    .primaryKey()
+    .references(() => sessions.sourceFile, { onDelete: "cascade" }),
   mtimeMs: real("mtime_ms").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   lastIndexedAt: text("last_indexed_at"),

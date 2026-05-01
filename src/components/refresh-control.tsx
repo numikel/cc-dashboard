@@ -12,25 +12,25 @@ const LABELS: Record<RefreshInterval, string> = {
 
 interface RefreshControlProps {
   value: RefreshInterval;
-  isRefreshing?: boolean;
   onChange: (value: RefreshInterval) => void;
-  onRefresh?: () => void;
 }
 
-export function RefreshControl({ value, isRefreshing = false, onChange, onRefresh }: RefreshControlProps) {
+export function RefreshControl({ value, onChange }: RefreshControlProps) {
   return (
-    <div className="flex items-center gap-2 text-sm muted" aria-busy={isRefreshing}>
-      <span aria-live="polite">{isRefreshing ? "Updating..." : "Refresh"}</span>
+    <label className="flex items-center gap-2 text-sm">
+      <span className="select-none" style={{ color: "var(--color-text-muted)" }}>
+        Refresh
+      </span>
       <select
         aria-label="Refresh interval"
-        className="rounded-lg border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--color-accent-strong)]"
+        className="rounded-lg border px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--color-accent-strong)]"
         style={{
-          background: "var(--color-panel)",
+          background: "var(--color-bg-muted)",
           borderColor: "var(--color-border)",
           color: "var(--color-text)"
         }}
         value={value}
-        onChange={(event) => onChange(Number(event.target.value) as RefreshInterval)}
+        onChange={(e) => onChange(Number(e.target.value) as RefreshInterval)}
       >
         {REFRESH_INTERVALS.map((interval) => (
           <option key={interval} value={interval}>
@@ -38,16 +38,6 @@ export function RefreshControl({ value, isRefreshing = false, onChange, onRefres
           </option>
         ))}
       </select>
-      <button
-        className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white transition disabled:cursor-wait disabled:opacity-75"
-        style={{ background: "var(--color-accent-strong)" }}
-        type="button"
-        disabled={isRefreshing}
-        onClick={onRefresh}
-      >
-        {isRefreshing ? <span className="h-3 w-3 rounded-full border-2 border-white/40 border-t-white animate-spin" aria-hidden="true" /> : null}
-        {isRefreshing ? "Syncing..." : "Sync now"}
-      </button>
-    </div>
+    </label>
   );
 }

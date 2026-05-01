@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { getDatabasePath } from "@/lib/config";
+import { getDatabasePath } from "@/lib/server-config";
 
 interface Migration {
   version: number;
@@ -80,13 +80,51 @@ const migrations: Migration[] = [
       );
     `);
     }
+  },
+  {
+    version: 2,
+    name: "sync_files_session_fk_cascade",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE sync_files_new (
+          source_file TEXT PRIMARY KEY REFERENCES sessions(source_file) ON DELETE CASCADE,
+          mtime_ms REAL NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          last_indexed_at TEXT,
+          last_error TEXT
+        );
+        INSERT INTO sync_files_new
+          SELECT * FROM sync_files
+          WHERE source_file IN (SELECT source_file FROM sessions);
+        DROP TABLE sync_files;
+        ALTER TABLE sync_files_new RENAME TO sync_files;
+      `);
+    }
+  },
+  {
+    // Migration 2 FK was too strict: sync_files also tracks failed files that
+    // never produce a session row, causing FOREIGN KEY constraint failures in
+    // recordFailure(). Revert to no FK; session-cascade cleanup stays explicit
+    // in the delete path (v0.4 candidate).
+    version: 3,
+    name: "sync_files_remove_session_fk",
+    up: (db) => {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE sync_files_new (
+          source_file TEXT PRIMARY KEY,
+          mtime_ms REAL NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          last_indexed_at TEXT,
+          last_error TEXT
+        );
+        INSERT INTO sync_files_new SELECT * FROM sync_files;
+        DROP TABLE sync_files;
+        ALTER TABLE sync_files_new RENAME TO sync_files;
+        PRAGMA foreign_keys = ON;
+      `);
+    }
   }
-  // Future migrations append here, e.g.:
-  // {
-  //   version: 2,
-  //   name: "add_foo_column",
-  //   up: (db) => { db.exec(`ALTER TABLE sessions ADD COLUMN foo TEXT`); }
-  // }
 ];
 
 /**

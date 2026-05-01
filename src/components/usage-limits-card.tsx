@@ -32,21 +32,24 @@ function formatDuration(ms: number): string {
 
 function ResetCountdown({ label, resetAt, windowMs }: { label: string; resetAt: string | null; windowMs: number }) {
   const resetTime = useMemo(() => {
-    if (!resetAt) {
-      return null;
-    }
-
+    if (!resetAt) return null;
     const parsed = new Date(resetAt).getTime();
     return Number.isFinite(parsed) ? parsed : null;
   }, [resetAt]);
+
   const [now, setNow] = useState(() => Date.now());
 
-  useEffect(() => {
-    if (!resetTime) {
-      return;
-    }
+  // sr-only text updated only on minute boundary changes (not every second)
+  const [srMinutesLeft, setSrMinutesLeft] = useState<number | null>(null);
 
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+  useEffect(() => {
+    if (!resetTime) return;
+    const timer = window.setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      const mins = Math.ceil(Math.max(0, resetTime - current) / 60000);
+      setSrMinutesLeft((prev) => (prev !== mins ? mins : prev));
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [resetTime]);
 
@@ -61,20 +64,35 @@ function ResetCountdown({ label, resetAt, windowMs }: { label: string; resetAt: 
   return (
     <div className="mt-5 rounded-2xl border p-3" style={{ borderColor: "var(--color-border-soft)", background: "var(--color-panel)" }}>
       <div className="flex items-center gap-3">
+        {/* Donut — static aria-label, visual only */}
         <div
+          role="img"
+          aria-label={`${label} usage donut`}
           className="grid h-14 w-14 shrink-0 place-items-center rounded-full"
           style={{
             background: `conic-gradient(var(--color-accent) ${remainingPercentage}%, var(--color-bg-muted) 0)`
           }}
-          aria-label={`${label} countdown: ${remainingLabel}`}
         >
           <div className="h-10 w-10 rounded-full" style={{ background: "var(--color-panel)" }} />
         </div>
         <div className="min-w-0 text-left">
           <p className="text-xs font-semibold uppercase tracking-wide muted">{label}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums">{remainingLabel}</p>
+          {/* Visual countdown — aria-hidden so SR uses the sr-only span instead */}
+          <p aria-hidden="true" className="mt-1 text-lg font-semibold tabular-nums">{remainingLabel}</p>
         </div>
       </div>
+      {/* SR-only announcement — updates only on minute change to avoid noisy per-second announcements */}
+      <span
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {srMinutesLeft !== null && srMinutesLeft > 0
+          ? `${label} resets in ${srMinutesLeft} minute${srMinutesLeft === 1 ? "" : "s"}`
+          : srMinutesLeft === 0
+          ? `${label} reset pending`
+          : ""}
+      </span>
     </div>
   );
 }

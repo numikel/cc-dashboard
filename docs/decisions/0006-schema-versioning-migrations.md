@@ -48,3 +48,19 @@ Adopt a lightweight `schema_version` helper based on SQLite's built-in `pragma u
 - Related: ADR-0001 (single-container, SQLite choice)
 - SQLite reference: [`pragma user_version`](https://www.sqlite.org/pragma.html#pragma_user_version)
 - Plan: `C:\Users\micha\.claude\plans\zapoznaj-si-z-ai-temp-reviews-orchestrat-lively-neumann.md`
+
+## Indexer version semantics (INDEXER_VERSION)
+
+Apart from the DB schema version tracked by `pragma user_version`, the sync
+indexer maintains its own versioning string (`INDEXER_VERSION` in
+`src/lib/sync/indexer.ts`). This controls whether previously-indexed files are
+re-processed even when their mtime and size have not changed.
+
+**When to bump**: any change to how the indexer derives *what metadata is stored*
+from a JSONL file. Examples: adding a new field to `ParsedSession`, changing
+`SAFE_KEYS` in `facets-parser.ts`, changing skip-eligibility logic in `shouldSkip`.
+
+**Current value** (`"2"`): introduced during the v0.3 hardening pass.
+Changes from `"1"` to `"2"` include: facets SAFE_KEYS revised (removed
+`id`/`session_id`/`sessionId` as auto-excluded), session name capped to 80 chars,
+`shouldSkip` refactored to bulk-load `sync_files` into a `Map` once per run.

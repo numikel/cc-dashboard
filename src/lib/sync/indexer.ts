@@ -10,6 +10,11 @@ import type { ParsedSession, ScannedFile } from "@/lib/claude/types";
 // Bump when the indexer changes how it derives metadata from JSONL (e.g. schema
 // of facets, computed fields on ParsedSession, or what counts as "skip-eligible").
 // Files whose stored indexerVersion differs are re-indexed even if mtime/size match.
+//
+// Version history:
+//   "1" — initial indexer: basic session metadata, no facets
+//   "2" — v0.3 hardening: facets SAFE_KEYS revised, session name capped to 80 chars,
+//          shouldSkip refactored to bulk-load sync_files map (changes skip-eligible logic)
 const INDEXER_VERSION = "2";
 
 export interface SyncStatus {

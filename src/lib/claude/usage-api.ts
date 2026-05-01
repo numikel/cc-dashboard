@@ -1,7 +1,7 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { getClaudeDataDir } from "@/lib/config";
+import { getClaudeDataDir } from "@/lib/server-config";
 import { getSqlite } from "@/lib/db/client";
 
 const CACHE_MAX_AGE_SECONDS = 180;
@@ -21,34 +21,38 @@ const CredentialsSchema = z.object({
     .optional()
 });
 
-const UsageApiResponseSchema = z.object({
-  five_hour: z
-    .object({
-      utilization: z.number().nullable().optional(),
-      resets_at: z.string().nullable().optional()
-    })
-    .optional(),
-  seven_day: z
-    .object({
-      utilization: z.number().nullable().optional(),
-      resets_at: z.string().nullable().optional()
-    })
-    .optional(),
-  extra_usage: z
-    .object({
-      is_enabled: z.boolean().nullable().optional(),
-      monthly_limit: z.number().nullable().optional(),
-      used_credits: z.number().nullable().optional(),
-      utilization: z.number().nullable().optional()
-    })
-    .optional()
+const UsagePeriodSchema = z.object({
+  utilization: z.number().nullable().optional(),
+  resets_at: z.string().nullable().optional()
 });
+
+const UsageApiResponseSchema = z
+  .object({
+    five_hour: UsagePeriodSchema.optional(),
+    seven_day: UsagePeriodSchema.optional(),
+    // Sonnet-only and Claude Design weekly limits (field names inferred from claude.ai UI)
+    seven_day_sonnet: UsagePeriodSchema.optional(),
+    claude_design: UsagePeriodSchema.optional(),
+    extra_usage: z
+      .object({
+        is_enabled: z.boolean().nullable().optional(),
+        monthly_limit: z.number().nullable().optional(),
+        used_credits: z.number().nullable().optional(),
+        utilization: z.number().nullable().optional()
+      })
+      .optional()
+  })
+  .passthrough(); // keep unknown fields so we can debug new API additions
 
 export interface OfficialUsageData {
   sessionUsage?: number;
   sessionResetAt?: string;
   weeklyUsage?: number;
   weeklyResetAt?: string;
+  weeklySonnetUsage?: number;
+  weeklySonnetResetAt?: string;
+  weeklyClaudeDesignUsage?: number;
+  weeklyClaudeDesignResetAt?: string;
   extraUsageEnabled?: boolean;
   extraUsageLimit?: number;
   extraUsageUsed?: number;
@@ -61,6 +65,10 @@ export const OfficialUsageDataSchema = z.object({
   sessionResetAt: z.string().optional(),
   weeklyUsage: z.number().optional(),
   weeklyResetAt: z.string().optional(),
+  weeklySonnetUsage: z.number().optional(),
+  weeklySonnetResetAt: z.string().optional(),
+  weeklyClaudeDesignUsage: z.number().optional(),
+  weeklyClaudeDesignResetAt: z.string().optional(),
   extraUsageEnabled: z.boolean().optional(),
   extraUsageLimit: z.number().optional(),
   extraUsageUsed: z.number().optional(),
@@ -68,10 +76,10 @@ export const OfficialUsageDataSchema = z.object({
   error: z.enum(["no-credentials", "api-error", "parse-error", "disabled"]).optional()
 });
 
-function readUsageToken(): string | null {
+async function readUsageToken(): Promise<string | null> {
   try {
     const credentialsPath = path.join(getClaudeDataDir(), ".credentials.json");
-    const raw = fs.readFileSync(credentialsPath, "utf8");
+    const raw = await fs.readFile(credentialsPath, "utf8");
     const parsed = CredentialsSchema.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data.claudeAiOauth?.accessToken ?? null : null;
   } catch {
@@ -124,15 +132,20 @@ function parseUsageResponse(raw: unknown): OfficialUsageData | null {
     return null;
   }
 
+  const d = parsed.data;
   const data: OfficialUsageData = {
-    sessionUsage: parsed.data.five_hour?.utilization ?? undefined,
-    sessionResetAt: parsed.data.five_hour?.resets_at ?? undefined,
-    weeklyUsage: parsed.data.seven_day?.utilization ?? undefined,
-    weeklyResetAt: parsed.data.seven_day?.resets_at ?? undefined,
-    extraUsageEnabled: parsed.data.extra_usage?.is_enabled ?? undefined,
-    extraUsageLimit: parsed.data.extra_usage?.monthly_limit ?? undefined,
-    extraUsageUsed: parsed.data.extra_usage?.used_credits ?? undefined,
-    extraUsageUtilization: parsed.data.extra_usage?.utilization ?? undefined
+    sessionUsage: d.five_hour?.utilization ?? undefined,
+    sessionResetAt: d.five_hour?.resets_at ?? undefined,
+    weeklyUsage: d.seven_day?.utilization ?? undefined,
+    weeklyResetAt: d.seven_day?.resets_at ?? undefined,
+    weeklySonnetUsage: d.seven_day_sonnet?.utilization ?? undefined,
+    weeklySonnetResetAt: d.seven_day_sonnet?.resets_at ?? undefined,
+    weeklyClaudeDesignUsage: d.claude_design?.utilization ?? undefined,
+    weeklyClaudeDesignResetAt: d.claude_design?.resets_at ?? undefined,
+    extraUsageEnabled: d.extra_usage?.is_enabled ?? undefined,
+    extraUsageLimit: d.extra_usage?.monthly_limit ?? undefined,
+    extraUsageUsed: d.extra_usage?.used_credits ?? undefined,
+    extraUsageUtilization: d.extra_usage?.utilization ?? undefined
   };
 
   return data.sessionUsage === undefined && data.weeklyUsage === undefined ? null : data;
@@ -148,7 +161,7 @@ export async function getOfficialUsageData(): Promise<OfficialUsageData> {
     return cached;
   }
 
-  const token = readUsageToken();
+  const token = await readUsageToken();
   if (!token) {
     return { error: "no-credentials" };
   }
@@ -166,7 +179,8 @@ export async function getOfficialUsageData(): Promise<OfficialUsageData> {
       return { error: "api-error" };
     }
 
-    const parsed = parseUsageResponse(await response.json());
+    const body = await response.json();
+    const parsed = parseUsageResponse(body);
     return parsed ? writeCachedUsage(parsed) : { error: "parse-error" };
   } catch {
     return { error: "api-error" };

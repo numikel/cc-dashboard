@@ -38,6 +38,44 @@ function normalizeBaseUrl(value) {
   return (value || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
 
+/**
+ * Returns the validated origin (e.g. "http://localhost:3000") or null if invalid.
+ * Only http://localhost and http://127.0.0.1 are allowed (any port).
+ *
+ * @param {string | undefined} value
+ * @returns {string | null}
+ */
+function validateBaseUrl(value) {
+  try {
+    const u = new URL(value || DEFAULT_BASE_URL);
+    const allowedHosts = ["localhost", "127.0.0.1"];
+    if (!allowedHosts.includes(u.hostname)) return null;
+    if (u.protocol !== "http:") return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Displays an error message in the status element and auto-clears it after 5 s.
+ *
+ * @param {string} message
+ */
+function showUrlError(message) {
+  if (elements.statusText) {
+    elements.statusText.classList.remove("error");
+    elements.statusText.classList.add("error");
+    elements.statusText.textContent = message;
+    setTimeout(() => {
+      if (elements.statusText.textContent === message) {
+        elements.statusText.textContent = "";
+        elements.statusText.classList.remove("error");
+      }
+    }, 5000);
+  }
+}
+
 function storageGet(key) {
   return new Promise((resolve) => {
     chrome.storage.local.get([key], (result) => resolve(result[key]));
@@ -165,9 +203,13 @@ async function refresh() {
 }
 
 elements.saveUrl.addEventListener("click", async () => {
-  const baseUrl = normalizeBaseUrl(elements.baseUrl.value);
-  elements.baseUrl.value = baseUrl;
-  await storageSet(STORAGE_KEY, baseUrl);
+  const clean = validateBaseUrl(elements.baseUrl.value);
+  if (!clean) {
+    showUrlError("Only http://localhost or http://127.0.0.1 URLs are allowed");
+    return;
+  }
+  elements.baseUrl.value = clean;
+  await storageSet(STORAGE_KEY, clean);
   await refresh();
 });
 
@@ -187,7 +229,7 @@ elements.syncNow.addEventListener("click", async () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   const storedBaseUrl = await storageGet(STORAGE_KEY);
-  elements.baseUrl.value = normalizeBaseUrl(storedBaseUrl);
+  elements.baseUrl.value = validateBaseUrl(storedBaseUrl) || DEFAULT_BASE_URL;
   await refresh();
   window.setInterval(refresh, 60_000);
 });

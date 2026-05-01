@@ -1,5 +1,26 @@
 # Runbook
 
+## Data directory resolution
+
+The dashboard resolves the SQLite database location in this priority order:
+
+1. `DATABASE_PATH` env var — full path to the `.db` file (highest priority)
+2. `DATA_DIR` env var — directory; database is `$DATA_DIR/dashboard.db`
+3. `/data` — used automatically when the path exists (Docker canonical mount)
+4. `~/.cc-dashboard/` — native fallback (Windows / Linux / Mac)
+
+Set `DATA_DIR` in your `.env` file for native (non-Docker) installs:
+
+```env
+DATA_DIR=/home/youruser/.cc-dashboard
+```
+
+If the resolved directory is not writable, the dashboard logs a warning at startup
+but does not crash. See `docs/decisions/0007-data-directory-resolution.md`.
+
+**Symlinks**: paths inside `CLAUDE_CONFIG_DIR` are not followed. Point directly
+to the real path or use a bind-mount.
+
 ## Start locally with npm
 
 ```powershell

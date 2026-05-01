@@ -4,7 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 import { RefreshControl } from "@/components/refresh-control";
 
 describe("RefreshControl", () => {
-  it("emits selected refresh interval", async () => {
+  it("renders the refresh interval select", () => {
+    render(<RefreshControl value={60} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Refresh interval")).toBeInTheDocument();
+  });
+
+  it("emits selected refresh interval on change", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<RefreshControl value={60} onChange={onChange} />);
@@ -14,21 +19,8 @@ describe("RefreshControl", () => {
     expect(onChange).toHaveBeenCalledWith(180);
   });
 
-  it("emits manual refresh clicks", async () => {
-    const user = userEvent.setup();
-    const onRefresh = vi.fn();
-    render(<RefreshControl value={60} onChange={vi.fn()} onRefresh={onRefresh} />);
-
-    await user.click(screen.getByRole("button", { name: "Sync now" }));
-
-    expect(onRefresh).toHaveBeenCalledOnce();
-  });
-
-  it("shows an active refresh state", () => {
-    const onRefresh = vi.fn();
-    render(<RefreshControl value={60} isRefreshing onChange={vi.fn()} onRefresh={onRefresh} />);
-
-    expect(screen.getByText("Updating...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Syncing..." })).toBeDisabled();
+  it("reflects the current value in the select", () => {
+    render(<RefreshControl value={30} onChange={vi.fn()} />);
+    expect((screen.getByLabelText("Refresh interval") as HTMLSelectElement).value).toBe("30");
   });
 });

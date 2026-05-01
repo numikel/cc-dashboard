@@ -1,13 +1,13 @@
-# CC dashboard v0.3.0
+# CC dashboard v0.4.0
 
-**CC dashboard** is a local-first analytics dashboard for Claude Code usage. It shows sessions, projects, token trends, active sessions and plan utilization, and can run as a web app, Docker container, Windows service, or Chrome side panel.
+**CC dashboard** is a local-first analytics dashboard for Claude Code usage. It shows sessions, projects, token trends, cost estimates, active sessions and plan utilization, and can run as a web app, Docker container, Windows service, or Chrome side panel.
 
 ![Node version](https://img.shields.io/badge/node-22%20LTS-blue.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
 ![React](https://img.shields.io/badge/React-19-61dafb.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Version](https://img.shields.io/badge/version-0.3.0-orange.svg)
+![Version](https://img.shields.io/badge/version-0.4.0-orange.svg)
 
 ## About
 
@@ -36,8 +36,9 @@ Screenshots showing the main dashboard and the Chrome side panel extension.
 - ✅ **Metadata-only privacy guard** - Never stores prompt text, assistant responses or message content; tests enforce forbidden content fields
 - ✅ **JSONL incremental indexer** - Reads Claude Code session JSONL files, tracks `mtime` and size, then reparses only changed files
 - ✅ **SQLite with WAL mode** - Local read/write concurrency without external services; configurable via `DATABASE_PATH`
-- ✅ **Five live dashboard views** - Overview, Sessions, Projects, Tokens and Audit, with SWR-driven polling
+- ✅ **Six live dashboard views** - Overview, Sessions, Projects, Costs, Tokens and Audit, with SWR-driven polling
 - ✅ **Active sessions panel** - Reads live Claude Code session state from disk (PID, cwd, updated-at)
+- ✅ **Cost estimation** - Estimated USD cost per session, project and day using LiteLLM public pricing; 24-hour local cache; opt-out via `CC_DASHBOARD_DISABLE_PRICING=1`; time-range filter (Today / 7d / 30d / All) shared across Overview and dedicated `/costs` page
 - ✅ **Plan usage donuts** - Current 5-hour session block, weekly all-models, weekly Sonnet, daily routine runs (official OAuth source when available, local estimate as fallback)
 - ✅ **Configurable refresh intervals** - `OFF`, `30 s`, `60 s`, `180 s`, `300 s`, persisted in `localStorage`
 - ✅ **Three runtime surfaces** - npm production, Docker Compose, or Windows background service via WinSW
@@ -179,6 +180,10 @@ All settings are environment variables. The dashboard reads them lazily, so a re
 | `PLAN_WEEKLY_SONNET_TOKEN_BUDGET` | `5000000` | Token budget for the weekly Sonnet-only usage card |
 
 **Resolution chain for the Claude Code data directory:** `CLAUDE_CONFIG_DIR` &rarr; `CLAUDE_DATA_DIR` &rarr; `CLAUDE_DATA_PATH` &rarr; `/claude-data` (Docker) or `~/.claude` (native). The first defined value wins.
+
+> **Note:** Symlinks inside `CLAUDE_CONFIG_DIR` are not followed.
+> If your Claude Code data lives behind a symlink, point `CLAUDE_CONFIG_DIR`
+> directly to the real path, or use a bind-mount in Docker.
 
 Example environment configuration:
 

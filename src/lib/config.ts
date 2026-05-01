@@ -1,6 +1,4 @@
-import path from "node:path";
-
-export const APP_VERSION = "0.3.0";
+export const APP_VERSION = "0.4.0";
 
 export const REFRESH_INTERVALS = [0, 30, 60, 180, 300] as const;
 export type RefreshInterval = (typeof REFRESH_INTERVALS)[number];
@@ -12,22 +10,9 @@ export const WEEKLY_RESET_DAY_OF_WEEK = 5; // Friday (0=Sunday)
 export const WEEKLY_RESET_HOUR_UTC = 10;
 export const USAGE_QUERY_WINDOW_MS = 35 * 24 * 60 * 60 * 1000; // 35-day rolling window for getUsageLimits fallback
 
-export function getDataDir(): string {
-  return process.env.DATA_DIR ?? "/data";
-}
-
-export function getDatabasePath(): string {
-  return process.env.DATABASE_PATH ?? path.join(getDataDir(), "dashboard.db");
-}
-
-export function getClaudeDataDir(): string {
-  return (
-    process.env.CLAUDE_CONFIG_DIR ??
-    process.env.CLAUDE_DATA_DIR ??
-    process.env.CLAUDE_DATA_PATH ??
-    "/claude-data"
-  );
-}
+// getDatabasePath, getDataDir, ensureDataDirWritable, getClaudeDataDir
+// live in server-config.ts (they use node:fs / node:os which cannot be
+// bundled for client components).
 
 export function getDefaultRefreshInterval(): RefreshInterval {
   const raw = Number(process.env.REFRESH_INTERVAL ?? 60);

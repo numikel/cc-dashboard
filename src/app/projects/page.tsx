@@ -1,9 +1,29 @@
-import { listProjects } from "@/lib/api/queries";
+import type { Metadata } from "next";
+import { listProjects, getTopProjectsByCost } from "@/lib/api/queries";
+import { getPricingMap } from "@/lib/pricing";
+
+export const metadata: Metadata = {
+  title: "Projects · CC dashboard",
+};
 
 export const dynamic = "force-dynamic";
 
+function formatProjectCost(usd: number | null | undefined): string {
+  if (usd == null) return "";
+  if (usd === 0) return "~$0.00";
+  if (usd < 0.001) return `~$${usd.toFixed(6)}`;
+  if (usd < 0.01) return `~$${usd.toFixed(4)}`;
+  return `~$${usd.toFixed(2)}`;
+}
+
 export default async function ProjectsPage() {
-  const projects = await Promise.resolve(listProjects());
+  const pricingMap = await getPricingMap();
+  const projects = listProjects(500);
+  const costData = getTopProjectsByCost(pricingMap, null, 500);
+
+  const costByPath = new Map<string, number | null>(
+    costData.map((p) => [p.path, p.costUsd])
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -25,6 +45,9 @@ export default async function ProjectsPage() {
                 <div className="text-left md:text-right">
                   <p className="font-semibold">{project.totalTokens.toLocaleString()} tokens</p>
                   <p className="text-sm muted">{project.sessions} sessions</p>
+                  <p className="text-sm" style={{ color: "var(--color-accent-strong)" }}>
+                    {formatProjectCost(costByPath.get(project.path))}
+                  </p>
                 </div>
               </div>
             </article>

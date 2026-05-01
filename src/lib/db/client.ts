@@ -3,7 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
-import { getDatabasePath } from "@/lib/config";
+import { getDatabasePath, ensureDataDirWritable } from "@/lib/server-config";
 import * as schema from "@/lib/db/schema";
 import { runMigrations } from "@/lib/db/migrate";
 
@@ -77,6 +77,14 @@ function registerExitHandlers(): void {
   });
 }
 
+function sleepSync(ms: number): void {
+  // Busy-wait during DB lock acquisition — acceptable: runs once at startup only.
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    /* spin */
+  }
+}
+
 function acquireDbLock(databasePath: string): void {
   const lockPath = `${databasePath}.lock`;
   if (dbLock?.path === lockPath) {
@@ -85,7 +93,7 @@ function acquireDbLock(databasePath: string): void {
 
   releaseDbLock();
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const fd = fs.openSync(/* turbopackIgnore: true */ lockPath, "wx");
       fs.writeFileSync(
@@ -108,13 +116,18 @@ function acquireDbLock(databasePath: string): void {
         const ownerPid = parsed.success ? parsed.data.pid : undefined;
         if (!ownerPid || !isProcessRunning(ownerPid)) {
           fs.unlinkSync(/* turbopackIgnore: true */ lockPath);
-          continue;
+          continue; // stale lock removed — retry immediately
         }
       } catch {
         fs.unlinkSync(/* turbopackIgnore: true */ lockPath);
         continue;
       }
 
+      // Live process holds the lock — give it 50ms before retrying
+      if (attempt < 2) {
+        sleepSync(50);
+        continue;
+      }
       throw new Error(`Dashboard database is already in use by another process. Lock file: ${lockPath}`);
     }
   }
@@ -138,6 +151,7 @@ export function getSqlite(): Sqlite {
   try {
     sqlite?.close();
     sqlite = null;
+    ensureDataDirWritable();
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     if (isDbLockEnabled()) {
       acquireDbLock(databasePath);

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { getClaudeDataDir } from "@/lib/config";
+import { getClaudeDataDir } from "@/lib/server-config";
 import { sanitizeErrorMessage } from "@/lib/privacy/sanitize-error";
 import type { ActiveSession } from "@/lib/claude/types";
 

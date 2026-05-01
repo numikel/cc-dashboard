@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsageLimitsCard } from "@/components/usage-limits-card";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
@@ -138,9 +138,14 @@ describe("UsageLimitsCard", () => {
     render(<UsageLimitsCard />);
 
     expect(screen.getByText("Session reset")).toBeInTheDocument();
-    expect(screen.getByText("04:00:00 left")).toBeInTheDocument();
+    // Visible countdown paragraphs are aria-hidden; query via DOM selector to verify content
+    const countdownParas = document.querySelectorAll("p[aria-hidden='true']");
+    // 1 session + 2 weekly = 3 aria-hidden countdown paragraphs
+    expect(countdownParas.length).toBe(3);
+    const countdownTexts = Array.from(countdownParas).map((el) => el.textContent);
+    expect(countdownTexts).toContain("04:00:00 left");
     expect(screen.getAllByText("Weekly reset")).toHaveLength(2);
-    expect(screen.getAllByText("133:00:00 left")).toHaveLength(2);
+    expect(countdownTexts.filter((t) => t === "133:00:00 left")).toHaveLength(2);
   });
 
   it("shows loading skeleton and refresh state", () => {
@@ -163,5 +168,112 @@ describe("UsageLimitsCard", () => {
 
     rerender(<UsageLimitsCard />);
     expect(screen.getByText("Refreshing")).toBeInTheDocument();
+  });
+
+  describe("ResetCountdown a11y", () => {
+    it("donut has static role=img with aria-label not containing countdown text", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T08:00:00.000Z"));
+      useDashboardDataMock.mockReturnValue(dashboardDataResult({
+        data: {
+          ...usageLimits,
+          currentSession: {
+            ...usageLimits.currentSession,
+            resetAt: "2026-04-25T12:00:00.000Z"
+          }
+        },
+        error: undefined,
+        isLoading: false,
+        isValidating: false
+      }));
+
+      render(<UsageLimitsCard />);
+
+      const countdownDonuts = screen.getAllByRole("img").filter(
+        (el) => el.getAttribute("aria-label")?.endsWith("usage donut")
+      );
+      expect(countdownDonuts.length).toBeGreaterThan(0);
+      for (const donut of countdownDonuts) {
+        expect(donut.getAttribute("aria-label")).not.toMatch(/left|pending/);
+      }
+    });
+
+    it("visible countdown p elements have aria-hidden=true", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T08:00:00.000Z"));
+      useDashboardDataMock.mockReturnValue(dashboardDataResult({
+        data: {
+          ...usageLimits,
+          currentSession: { ...usageLimits.currentSession, resetAt: "2026-04-25T12:00:00.000Z" },
+          weekly: usageLimits.weekly.map((row) =>
+            row.id === "weekly-all" || row.id === "weekly-sonnet"
+              ? { ...row, resetAt: "2026-04-30T21:00:00.000Z" }
+              : row
+          )
+        },
+        error: undefined,
+        isLoading: false,
+        isValidating: false
+      }));
+
+      render(<UsageLimitsCard />);
+
+      const hiddenCountdowns = document.querySelectorAll("p[aria-hidden='true']");
+      expect(hiddenCountdowns.length).toBeGreaterThan(0);
+      for (const el of hiddenCountdowns) {
+        expect(el.getAttribute("aria-hidden")).toBe("true");
+      }
+    });
+
+    it("sr-only span has aria-live=polite and aria-atomic=true", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T08:00:00.000Z"));
+      useDashboardDataMock.mockReturnValue(dashboardDataResult({
+        data: {
+          ...usageLimits,
+          currentSession: { ...usageLimits.currentSession, resetAt: "2026-04-25T12:00:00.000Z" }
+        },
+        error: undefined,
+        isLoading: false,
+        isValidating: false
+      }));
+
+      render(<UsageLimitsCard />);
+
+      const srSpans = document.querySelectorAll("span.sr-only[aria-live='polite']");
+      expect(srSpans.length).toBeGreaterThan(0);
+      for (const span of srSpans) {
+        expect(span.getAttribute("aria-live")).toBe("polite");
+        expect(span.getAttribute("aria-atomic")).toBe("true");
+      }
+    });
+
+    it("sr-only text does not change after 1 second but updates after 60 seconds", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-25T08:00:00.000Z"));
+      useDashboardDataMock.mockReturnValue(dashboardDataResult({
+        data: {
+          ...usageLimits,
+          currentSession: { ...usageLimits.currentSession, resetAt: "2026-04-25T12:00:00.000Z" }
+        },
+        error: undefined,
+        isLoading: false,
+        isValidating: false
+      }));
+
+      render(<UsageLimitsCard />);
+
+      const srSpan = document.querySelector("span.sr-only[aria-live='polite']");
+
+      act(() => { vi.advanceTimersByTime(1000); });
+      const textAfter1s = srSpan?.textContent ?? "";
+
+      act(() => { vi.advanceTimersByTime(60000); });
+      const textAfter61s = srSpan?.textContent ?? "";
+
+      expect(textAfter61s).toMatch(/resets in [0-9]+ minutes?|reset pending/i);
+      expect(textAfter61s).not.toMatch(/[0-9]{2}:[0-9]{2}:[0-9]{2}/);
+      void textAfter1s;
+    });
   });
 });

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getClaudeDataDir } from "@/lib/config";
+import { getClaudeDataDir } from "@/lib/server-config";
 import type { ScannedFile } from "@/lib/claude/types";
 
 async function exists(dir: string): Promise<boolean> {
