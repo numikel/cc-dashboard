@@ -44,13 +44,43 @@ function ResetCountdown({ label, resetAt, windowMs }: { label: string; resetAt: 
 
   useEffect(() => {
     if (!resetTime) return;
-    const timer = window.setInterval(() => {
+    let timer: number | null = null;
+
+    const tick = () => {
       const current = Date.now();
       setNow(current);
       const mins = Math.ceil(Math.max(0, resetTime - current) / 60000);
       setSrMinutesLeft((prev) => (prev !== mins ? mins : prev));
-    }, 1000);
-    return () => window.clearInterval(timer);
+    };
+
+    const start = () => {
+      if (timer !== null) return;
+      tick();
+      timer = window.setInterval(tick, 1000);
+    };
+
+    const stop = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    if (document.visibilityState === "visible") start();
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [resetTime]);
 
   if (!resetTime) {
@@ -109,7 +139,7 @@ function UsageSkeleton() {
       </div>
       <div className="mt-7 grid gap-4 md:grid-cols-3">
         {Array.from({ length: 3 }).map((_, index) => (
-          <div key={'usage-skel-' + index} className="rounded-2xl border p-4 sm:p-5" style={{ borderColor: "var(--color-border-soft)", background: "var(--color-bg-muted)" }}>
+          <div key={"usage-skel-" + index} className="rounded-2xl border p-4 sm:p-5" style={{ borderColor: "var(--color-border-soft)", background: "var(--color-bg-muted)" }}>
             <div className="mx-auto h-24 w-24 animate-pulse rounded-full sm:h-28 sm:w-28 md:h-24 md:w-24 2xl:h-28 2xl:w-28" style={{ background: "var(--color-panel)" }} />
             <div className="mt-5 h-5 w-32 animate-pulse rounded-lg" style={{ background: "var(--color-panel)" }} />
             <div className="mt-3 h-4 w-40 animate-pulse rounded-lg" style={{ background: "var(--color-panel)" }} />

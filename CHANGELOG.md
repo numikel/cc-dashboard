@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.5.0] — 2026-05-01
+
+### Database / Architecture
+- Split monolithic `settings` table into `sync_state` (persistent k/v) and `api_cache` (TTL cache with `expires_at`) — migration v4 (`settings_split`)
+- Added `CHECK (last_error IS NULL OR length(last_error) <= 512)` on `sync_files.last_error` with automatic truncation on migration — migration v5 (`sync_files_last_error_check`)
+- All `api_cache` reads are now Zod-validated via `readCache<T>()` in `src/lib/db/api-cache.ts`
+- Added `src/lib/api/csrf.ts` — shared CSRF guard (`rejectsCsrf`) extracted from `/api/sync`
+
+### UI / Features
+- Refresh interval is now managed by `RefreshIntervalProvider` React context — eliminates `localStorage` hydration mismatch (React 19 strict-mode safe) and synchronises interval across all consumers without re-renders
+- `/` and `/costs` pages pre-fetch data on the server and pass `fallbackData` to SWR — eliminates loading flash on navigation
+- Added Maintenance modal (Settings → Maintenance…) with three operations: VACUUM, Trim old sync files (configurable days), Reset cache (pricing / usage / all)
+- `ResetCountdown` timer in Usage Limits card now pauses when the browser tab is hidden (fixes wasted CPU — #065)
+- Enabled `experimental.typedRoutes` in `next.config.ts` for compile-time `<Link>` href safety
+
+### API
+- `POST /api/maintenance/vacuum` — runs SQLite VACUUM, returns before/after byte counts
+- `POST /api/maintenance/trim-sync-files` — deletes old `sync_files` rows, configurable `olderThanDays` (1–365, default 30)
+- `POST /api/maintenance/reset-cache` — clears `api_cache` by scope: `"pricing"`, `"usage"`, or `"all"`
+
+### Code quality
+- Extracted `formatCost`, `formatTokens`, `formatProjectCost` into `src/lib/format.ts` — removed duplication across 5 files
+- Extracted chart colour palette into `src/lib/chart-palette.ts` — removed duplicated hex arrays
+- Added `PRICING_CACHE_TTL_SECONDS`, `OFFICIAL_USAGE_CACHE_TTL_SECONDS`, `LITELLM_FETCH_TIMEOUT_MS`, `LITELLM_PRICING_URL` constants to `src/lib/config.ts`
+- Pricing cache now validated with `PricingMapSchema` (Zod) on read
+
+### Privacy
+- `sync_files.last_error` capped at 512 characters at DB level — prevents accidental path/token leakage in error messages
+
+### Testing
+- 204 tests passing; added tests for migrations v4+v5, api_cache round-trips, formatters, chart palette, time-range filter, pricing cache (with schema validation case)
+
+### Documentation
+- ADR-0008: Pricing engine architecture (three-tier: cache → LiteLLM → regex fallback)
+- ADR-0009: Settings table split rationale
+
 ## 0.4.0 — 2026-05-01 — Cost estimation & time-range filtering
 
 ### Cost estimation

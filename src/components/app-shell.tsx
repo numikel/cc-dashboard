@@ -1,20 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RefreshControl } from "@/components/refresh-control";
 import { useRefreshInterval } from "@/hooks/use-refresh-interval";
+import { MaintenanceDialog } from "@/components/maintenance-dialog";
 
-const NAV = [
+const NAV: { href: Route; label: string }[] = [
   { href: "/", label: "Overview" },
   { href: "/sessions", label: "Sessions" },
   { href: "/projects", label: "Projects" },
   { href: "/costs", label: "Costs" },
   { href: "/tokens", label: "Tokens" },
-  { href: "/audit", label: "Audit" }
+  { href: "/audit", label: "Audit" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -76,6 +78,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -187,6 +190,16 @@ function ShellContent({ children }: { children: React.ReactNode }) {
                   <div className="flex items-center justify-between gap-4">
                     <RefreshControl value={interval} onChange={setInterval} />
                   </div>
+                  <div style={{ borderTop: "1px solid var(--color-border-soft)", marginTop: "4px", paddingTop: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => { setMaintenanceOpen(true); setSettingsOpen(false); }}
+                      className="w-full rounded-lg px-2 py-1.5 text-left text-xs font-medium transition hover:opacity-80"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      Maintenance…
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -224,6 +237,7 @@ function ShellContent({ children }: { children: React.ReactNode }) {
         </nav>
       </header>
       <main className="flex-1">{children}</main>
+      <MaintenanceDialog open={maintenanceOpen} onClose={() => setMaintenanceOpen(false)} />
     </div>
   );
 }

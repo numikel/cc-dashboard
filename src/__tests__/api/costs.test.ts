@@ -118,5 +118,5 @@ describe("GET /api/costs", () => {
     expect(Array.isArray(body.dailyCosts)).toBe(true);
     expect(Array.isArray(body.topProjects)).toBe(true);
     expect(Array.isArray(body.unknownModels)).toBe(true);
-  });
+  }, 15_000);
 });

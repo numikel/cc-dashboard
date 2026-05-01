@@ -670,3 +670,28 @@ export function getTopProjectsByCost(pricingMap: PricingMap, since: string | nul
     .slice(0, limit)
     .map(({ name, path, costUsd, sessions }) => ({ name, path, costUsd, sessions }));
 }
+
+export interface OverviewCostsSummary {
+  totalCostUsd: number | null;
+  disabledPricing: boolean;
+  window: string;
+}
+
+export function computeOverviewCostsTotal(
+  pricingMap: PricingMap,
+  since: string | null,
+  window: string
+): OverviewCostsSummary {
+  const disabledPricing =
+    process.env.CC_DASHBOARD_DISABLE_PRICING === "1" ||
+    process.env.CC_DASHBOARD_DISABLE_PRICING === "true";
+
+  const byModel = getModelCosts(pricingMap, since);
+  const pricedRows = byModel.filter((row) => row.costUsd !== null);
+  const totalCostUsd: number | null =
+    pricedRows.length > 0
+      ? pricedRows.reduce((acc, row) => acc + (row.costUsd as number), 0)
+      : null;
+
+  return { totalCostUsd, disabledPricing, window };
+}

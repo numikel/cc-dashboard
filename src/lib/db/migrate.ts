@@ -124,6 +124,78 @@ const migrations: Migration[] = [
         PRAGMA foreign_keys = ON;
       `);
     }
+  },
+  {
+    version: 4,
+    name: "settings_split",
+    up: (db) => {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+
+        CREATE TABLE sync_state (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE api_cache (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        INSERT INTO sync_state (key, value, updated_at)
+          SELECT key, value, updated_at FROM settings
+          WHERE key IN ('indexer_version', 'last_sync_status');
+
+        INSERT INTO api_cache (key, value, expires_at, updated_at)
+          SELECT
+            key,
+            value,
+            datetime(updated_at,
+              CASE key
+                WHEN 'pricing_snapshot'      THEN '+86400 seconds'
+                WHEN 'official_usage_cache'  THEN '+180 seconds'
+                ELSE '+0 seconds'
+              END
+            ),
+            updated_at
+          FROM settings
+          WHERE key IN ('pricing_snapshot', 'official_usage_cache');
+
+        DROP TABLE settings;
+
+        PRAGMA foreign_keys = ON;
+      `);
+    }
+  },
+  {
+    version: 5,
+    name: "sync_files_last_error_check",
+    up: (db) => {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+
+        CREATE TABLE sync_files_new (
+          source_file     TEXT PRIMARY KEY,
+          mtime_ms        REAL NOT NULL,
+          size_bytes      INTEGER NOT NULL,
+          last_indexed_at TEXT,
+          last_error      TEXT CHECK (last_error IS NULL OR length(last_error) <= 512)
+        );
+
+        INSERT INTO sync_files_new (source_file, mtime_ms, size_bytes, last_indexed_at, last_error)
+          SELECT source_file, mtime_ms, size_bytes, last_indexed_at,
+                 CASE WHEN last_error IS NULL THEN NULL ELSE substr(last_error, 1, 512) END
+          FROM sync_files;
+
+        DROP TABLE sync_files;
+        ALTER TABLE sync_files_new RENAME TO sync_files;
+
+        PRAGMA foreign_keys = ON;
+      `);
+    }
   }
 ];
 

@@ -31,7 +31,9 @@ describe("runMigrations", () => {
     expect(tableNames).toContain("sessions");
     expect(tableNames).toContain("sync_files");
     expect(tableNames).toContain("facets");
-    expect(tableNames).toContain("settings");
+    expect(tableNames).toContain("sync_state");
+    expect(tableNames).toContain("api_cache");
+    expect(tableNames).not.toContain("settings");
   });
 
   it("is idempotent — second call does not change version or duplicate tables", () => {
@@ -55,10 +57,10 @@ describe("runMigrations", () => {
     expect(() => runMigrations(db)).not.toThrow();
   });
 
-  it("sets user_version to 3 after full migration", () => {
+  it("sets user_version to 5 after full migration", () => {
     runMigrations(db);
     const version = db.pragma("user_version", { simple: true }) as number;
-    expect(version).toBe(3);
+    expect(version).toBe(5);
   });
 });
 
@@ -197,10 +199,149 @@ describe("Migration 2 and 3 — sync_files FK lifecycle", () => {
   });
 
   it("migrations are idempotent (run twice = safe)", () => {
-    // After migrations, user_version = 3 — running again is a no-op
+    // After migrations, user_version = 5 — running again is a no-op
     runMigrations(db);
     expect(() => runMigrations(db)).not.toThrow();
     const version = db.pragma("user_version", { simple: true }) as number;
-    expect(version).toBe(3);
+    expect(version).toBe(5);
+  });
+});
+
+describe("Migration 4 — settings_split", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("creates sync_state and api_cache tables and drops settings", () => {
+    runMigrations(db);
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all() as { name: string }[];
+    const names = tables.map((t) => t.name);
+    expect(names).toContain("sync_state");
+    expect(names).toContain("api_cache");
+    expect(names).not.toContain("settings");
+  });
+
+  it("migrates sync_state keys from settings", () => {
+    db.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, source_file TEXT NOT NULL UNIQUE, model TEXT, models TEXT NOT NULL DEFAULT '[]', started_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, context_length INTEGER NOT NULL DEFAULT 0, message_count INTEGER NOT NULL DEFAULT 0, tool_calls INTEGER NOT NULL DEFAULT 0, git_branch TEXT, cwd TEXT, indexed_at TEXT NOT NULL, file_mtime_ms REAL NOT NULL, file_size_bytes INTEGER NOT NULL);
+      CREATE TABLE sync_files (source_file TEXT PRIMARY KEY, mtime_ms REAL NOT NULL, size_bytes INTEGER NOT NULL, last_indexed_at TEXT, last_error TEXT);
+      CREATE TABLE facets (id TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE, kind TEXT NOT NULL, value TEXT NOT NULL, source_file TEXT NOT NULL, indexed_at TEXT NOT NULL);
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+    `);
+    db.pragma("user_version = 3");
+
+    db.exec(`
+      INSERT INTO settings (key, value, updated_at) VALUES
+        ('indexer_version', '1', '2024-01-01T00:00:00.000Z'),
+        ('last_sync_status', '"ok"', '2024-01-01T00:00:00.000Z'),
+        ('pricing_snapshot', '{"claude-sonnet-4-5":{"inputPerToken":3e-6,"outputPerToken":15e-6,"cacheReadPerToken":3e-7,"cacheWritePerToken":3.75e-6}}', '2024-01-01T00:00:00.000Z'),
+        ('official_usage_cache', '{}', '2024-01-01T00:00:00.000Z');
+    `);
+
+    runMigrations(db);
+
+    const syncRows = db.prepare("SELECT key FROM sync_state").all() as { key: string }[];
+    const syncKeys = syncRows.map((r) => r.key);
+    expect(syncKeys).toContain("indexer_version");
+    expect(syncKeys).toContain("last_sync_status");
+
+    const cacheRows = db.prepare("SELECT key FROM api_cache").all() as { key: string }[];
+    const cacheKeys = cacheRows.map((r) => r.key);
+    expect(cacheKeys).toContain("pricing_snapshot");
+    expect(cacheKeys).toContain("official_usage_cache");
+  });
+
+  it("drops unrecognized settings keys (not migrated to either table)", () => {
+    db.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, source_file TEXT NOT NULL UNIQUE, model TEXT, models TEXT NOT NULL DEFAULT '[]', started_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, context_length INTEGER NOT NULL DEFAULT 0, message_count INTEGER NOT NULL DEFAULT 0, tool_calls INTEGER NOT NULL DEFAULT 0, git_branch TEXT, cwd TEXT, indexed_at TEXT NOT NULL, file_mtime_ms REAL NOT NULL, file_size_bytes INTEGER NOT NULL);
+      CREATE TABLE sync_files (source_file TEXT PRIMARY KEY, mtime_ms REAL NOT NULL, size_bytes INTEGER NOT NULL, last_indexed_at TEXT, last_error TEXT);
+      CREATE TABLE facets (id TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE, kind TEXT NOT NULL, value TEXT NOT NULL, source_file TEXT NOT NULL, indexed_at TEXT NOT NULL);
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+    `);
+    db.pragma("user_version = 3");
+
+    db.exec(`INSERT INTO settings (key, value, updated_at) VALUES ('unknown_key', '"data"', '2024-01-01T00:00:00.000Z');`);
+
+    runMigrations(db);
+
+    const syncRows = db.prepare("SELECT key FROM sync_state").all() as { key: string }[];
+    const cacheRows = db.prepare("SELECT key FROM api_cache").all() as { key: string }[];
+    expect(syncRows.map((r) => r.key)).not.toContain("unknown_key");
+    expect(cacheRows.map((r) => r.key)).not.toContain("unknown_key");
+  });
+
+  it("is idempotent when applied on top of already-migrated v4 db", () => {
+    runMigrations(db);
+    expect(() => runMigrations(db)).not.toThrow();
+    const version = db.pragma("user_version", { simple: true }) as number;
+    expect(version).toBe(5);
+  });
+});
+
+describe("Migration 5 — sync_files_last_error_check", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("truncates last_error values longer than 512 chars during migration", () => {
+    db.exec(`
+      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, source_file TEXT NOT NULL UNIQUE, model TEXT, models TEXT NOT NULL DEFAULT '[]', started_at TEXT, ended_at TEXT, duration_seconds INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, context_length INTEGER NOT NULL DEFAULT 0, message_count INTEGER NOT NULL DEFAULT 0, tool_calls INTEGER NOT NULL DEFAULT 0, git_branch TEXT, cwd TEXT, indexed_at TEXT NOT NULL, file_mtime_ms REAL NOT NULL, file_size_bytes INTEGER NOT NULL);
+      CREATE TABLE sync_files (source_file TEXT PRIMARY KEY, mtime_ms REAL NOT NULL, size_bytes INTEGER NOT NULL, last_indexed_at TEXT, last_error TEXT);
+      CREATE TABLE facets (id TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE, kind TEXT NOT NULL, value TEXT NOT NULL, source_file TEXT NOT NULL, indexed_at TEXT NOT NULL);
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+    `);
+    db.pragma("user_version = 3");
+
+    const longError = "x".repeat(600);
+    db.exec(`INSERT INTO sync_files (source_file, mtime_ms, size_bytes, last_error) VALUES ('/file.jsonl', 0, 100, '${longError}');`);
+
+    runMigrations(db);
+
+    const row = db.prepare("SELECT last_error FROM sync_files WHERE source_file = '/file.jsonl'").get() as { last_error: string };
+    expect(row.last_error.length).toBe(512);
+  });
+
+  it("enforces CHECK constraint — rejects last_error > 512 chars after migration", () => {
+    runMigrations(db);
+    const longError = "e".repeat(513);
+    expect(() => {
+      db.exec(`INSERT INTO sync_files (source_file, mtime_ms, size_bytes, last_error) VALUES ('/bad.jsonl', 0, 100, '${longError}');`);
+    }).toThrow();
+  });
+
+  it("allows last_error = NULL after migration", () => {
+    runMigrations(db);
+    expect(() => {
+      db.exec(`INSERT INTO sync_files (source_file, mtime_ms, size_bytes) VALUES ('/ok.jsonl', 0, 100);`);
+    }).not.toThrow();
+  });
+
+  it("allows last_error exactly 512 chars after migration", () => {
+    runMigrations(db);
+    const exactError = "e".repeat(512);
+    expect(() => {
+      db.exec(`INSERT INTO sync_files (source_file, mtime_ms, size_bytes, last_error) VALUES ('/exact.jsonl', 0, 100, '${exactError}');`);
+    }).not.toThrow();
   });
 });

@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.4.0";
+export const APP_VERSION = "0.5.0";
 
 export const REFRESH_INTERVALS = [0, 30, 60, 180, 300] as const;
 export type RefreshInterval = (typeof REFRESH_INTERVALS)[number];
@@ -13,6 +13,12 @@ export const USAGE_QUERY_WINDOW_MS = 35 * 24 * 60 * 60 * 1000; // 35-day rolling
 // getDatabasePath, getDataDir, ensureDataDirWritable, getClaudeDataDir
 // live in server-config.ts (they use node:fs / node:os which cannot be
 // bundled for client components).
+
+export const PRICING_CACHE_TTL_SECONDS = 86400;
+export const OFFICIAL_USAGE_CACHE_TTL_SECONDS = 180;
+export const LITELLM_FETCH_TIMEOUT_MS = 5000;
+export const LITELLM_PRICING_URL =
+  "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
 export function getDefaultRefreshInterval(): RefreshInterval {
   const raw = Number(process.env.REFRESH_INTERVAL ?? 60);

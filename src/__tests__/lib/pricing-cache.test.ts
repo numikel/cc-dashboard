@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runMigrations } from "@/lib/db/migrate";
 import { closeDbForTests } from "@/lib/db/client";
 import { readCachedPricing, writeCachedPricing } from "@/lib/pricing/cache";
 import type { PricingMap } from "@/lib/pricing/types";
@@ -31,26 +30,25 @@ const SAMPLE_MAP: PricingMap = {
 };
 
 describe("readCachedPricing", () => {
-  it("returns null when no entry exists in settings", () => {
+  it("returns null when no entry exists in api_cache", () => {
     const result = readCachedPricing();
     expect(result).toBeNull();
   });
 
-  it("returns the cached map within 24h TTL", () => {
+  it("returns the cached map within TTL", () => {
     writeCachedPricing(SAMPLE_MAP);
     const result = readCachedPricing();
     expect(result).not.toBeNull();
     expect(result!["claude-sonnet-4-5"].inputPerToken).toBe(3e-6);
   });
 
-  it("returns null when the cached entry is older than 24h", () => {
+  it("returns null when the cached entry is expired", () => {
     writeCachedPricing(SAMPLE_MAP);
 
-    // Simulate an expired timestamp by manipulating updated_at directly
+    // Simulate an expired entry by setting expires_at to the past
     const db = new BetterSqlite3(process.env.DATABASE_PATH!);
-    runMigrations(db);
-    const expiredAt = new Date(Date.now() - 86401_000).toISOString(); // 24h + 1s ago
-    db.prepare("UPDATE settings SET updated_at = ? WHERE key = 'pricing_snapshot'").run(expiredAt);
+    const expiredAt = new Date(Date.now() - 1000).toISOString(); // 1s ago
+    db.prepare("UPDATE api_cache SET expires_at = ? WHERE key = 'pricing_snapshot'").run(expiredAt);
     db.close();
 
     // Force reconnect by closing the cached connection
@@ -60,12 +58,27 @@ describe("readCachedPricing", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null on invalid JSON stored in settings", () => {
-    // Write garbage directly to settings
+  it("returns null on invalid JSON stored in api_cache", () => {
     writeCachedPricing(SAMPLE_MAP); // Ensure the row exists
 
     const db = new BetterSqlite3(process.env.DATABASE_PATH!);
-    db.prepare("UPDATE settings SET value = ? WHERE key = 'pricing_snapshot'").run("not-valid-json{{{{");
+    db.prepare("UPDATE api_cache SET value = ? WHERE key = 'pricing_snapshot'").run("not-valid-json{{{{");
+    db.close();
+
+    closeDbForTests();
+
+    const result = readCachedPricing();
+    expect(result).toBeNull();
+  });
+
+  it("returns null when stored value fails PricingMapSchema validation", () => {
+    writeCachedPricing(SAMPLE_MAP);
+
+    // Store valid JSON but wrong shape (missing required fields)
+    const db = new BetterSqlite3(process.env.DATABASE_PATH!);
+    db.prepare("UPDATE api_cache SET value = ? WHERE key = 'pricing_snapshot'").run(
+      JSON.stringify({ "model-x": { inputPerToken: "not-a-number" } })
+    );
     db.close();
 
     closeDbForTests();

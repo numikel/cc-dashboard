@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { getClaudeDataDir } from "@/lib/server-config";
-import { getSqlite } from "@/lib/db/client";
+import { readCache, writeCache } from "@/lib/db/api-cache";
+import { OFFICIAL_USAGE_CACHE_TTL_SECONDS } from "@/lib/config";
 
-const CACHE_MAX_AGE_SECONDS = 180;
 const USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage";
 const DISABLE_ENV_FLAG = "CC_DASHBOARD_DISABLE_USAGE_API";
 
@@ -88,41 +88,11 @@ async function readUsageToken(): Promise<string | null> {
 }
 
 function readCachedUsage(now = Date.now()): OfficialUsageData | null {
-  const row = getSqlite().prepare("SELECT value, updated_at AS updatedAt FROM settings WHERE key = 'official_usage_cache'").get() as
-    | { value: string; updatedAt: string }
-    | undefined;
-  if (!row) {
-    return null;
-  }
-
-  const cacheAgeSeconds = (now - Date.parse(row.updatedAt)) / 1000;
-  if (Number.isNaN(cacheAgeSeconds) || cacheAgeSeconds > CACHE_MAX_AGE_SECONDS) {
-    return null;
-  }
-
-  try {
-    const parsed = OfficialUsageDataSchema.safeParse(JSON.parse(row.value));
-    if (!parsed.success) {
-      // Cached value doesn't match expected shape — treat as a cache miss
-      // so the caller re-fetches from the API or falls back to local query.
-      console.warn("[usage-api] Cached OfficialUsageData failed schema validation — treating as cache miss");
-      return null;
-    }
-    return parsed.data;
-  } catch {
-    return null;
-  }
+  return readCache("official_usage_cache", OfficialUsageDataSchema, now);
 }
 
 function writeCachedUsage(data: OfficialUsageData): OfficialUsageData {
-  const updatedAt = new Date().toISOString();
-  getSqlite()
-    .prepare(
-      `INSERT INTO settings (key, value, updated_at)
-       VALUES ('official_usage_cache', ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-    .run(JSON.stringify(data), updatedAt);
+  writeCache("official_usage_cache", data, OFFICIAL_USAGE_CACHE_TTL_SECONDS);
   return data;
 }
 

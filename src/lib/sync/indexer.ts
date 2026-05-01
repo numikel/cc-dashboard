@@ -60,7 +60,7 @@ function buildShouldSkip(): (file: ScannedFile) => boolean {
   const sqlite = getSqlite();
 
   const versionRow = sqlite
-    .prepare("SELECT value FROM settings WHERE key = 'indexer_version'")
+    .prepare("SELECT value FROM sync_state WHERE key = 'indexer_version'")
     .get() as { value: string } | undefined;
 
   if (versionRow?.value !== INDEXER_VERSION) {
@@ -262,7 +262,7 @@ export async function runIncrementalSync(): Promise<SyncStatus> {
 
   getSqlite()
     .prepare(
-      `INSERT INTO settings (key, value, updated_at)
+      `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('last_sync_status', ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     )
@@ -270,7 +270,7 @@ export async function runIncrementalSync(): Promise<SyncStatus> {
 
   getSqlite()
     .prepare(
-      `INSERT INTO settings (key, value, updated_at)
+      `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('indexer_version', ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     )
@@ -280,7 +280,7 @@ export async function runIncrementalSync(): Promise<SyncStatus> {
 }
 
 export function getLastSyncStatus(): SyncStatus | null {
-  const row = getSqlite().prepare("SELECT value FROM settings WHERE key = 'last_sync_status'").get() as
+  const row = getSqlite().prepare("SELECT value FROM sync_state WHERE key = 'last_sync_status'").get() as
     | { value: string }
     | undefined;
   if (!row) {

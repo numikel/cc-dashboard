@@ -58,12 +58,36 @@ function OverviewSkeleton() {
   );
 }
 
-export function OverviewDashboard() {
-  const [window, setWindow] = useState<TimeWindow>("7d");
+interface OverviewDashboardClientProps {
+  initialStats: OverviewStats;
+  initialActive: ActiveSessionsResponse;
+  initialCosts: CostsResponse;
+  initialWindow: TimeWindow;
+}
+
+export function OverviewDashboardClient({
+  initialStats,
+  initialActive,
+  initialCosts,
+  initialWindow
+}: OverviewDashboardClientProps) {
+  const [window, setWindow] = useState<TimeWindow>(initialWindow);
   const { interval } = useRefreshInterval();
-  const stats = useDashboardData<OverviewStats>("/api/stats/overview?window=" + window, interval);
-  const active = useDashboardData<ActiveSessionsResponse>("/api/active-sessions", interval);
-  const costs = useDashboardData<CostsResponse>(`/api/costs?window=${window}`, interval);
+  const stats = useDashboardData<OverviewStats>(
+    "/api/stats/overview?window=" + window,
+    interval,
+    { fallbackData: window === initialWindow ? initialStats : undefined }
+  );
+  const active = useDashboardData<ActiveSessionsResponse>(
+    "/api/active-sessions",
+    interval,
+    { fallbackData: initialActive }
+  );
+  const costs = useDashboardData<CostsResponse>(
+    `/api/costs?window=${window}`,
+    interval,
+    { fallbackData: window === initialWindow ? initialCosts : undefined }
+  );
   useAutoSync(interval);
 
   if (stats.error) {
