@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.5.0";
+export const APP_VERSION = "0.5.1";
 
 export const REFRESH_INTERVALS = [0, 30, 60, 180, 300] as const;
 export type RefreshInterval = (typeof REFRESH_INTERVALS)[number];

@@ -1,5 +1,11 @@
-const DEFAULT_BASE_URL = "http://localhost:3000";
-const STORAGE_KEY = "ccDashboardBaseUrl";
+import {
+  DEFAULT_BASE_URL,
+  STORAGE_KEY,
+  createDropdown,
+  formatTokens,
+  normalizeBaseUrl,
+  validateBaseUrl
+} from "./sidepanel-utils.js";
 
 const elements = {
   statusText: document.querySelector("#statusText"),
@@ -14,57 +20,33 @@ const elements = {
   activeList: document.querySelector("#activeList"),
   syncNow: document.querySelector("#syncNow"),
   syncStatus: document.querySelector("#syncStatus"),
-  openDashboard: document.querySelector("#openDashboard")
+  openDashboard: document.querySelector("#openDashboard"),
+  settingsTrigger: document.querySelector("#settingsTrigger"),
+  settingsPanel: document.querySelector("#settingsPanel")
 };
 
-function formatTokens(value) {
-  if (!Number.isFinite(value)) {
-    return "-";
+const settingsDropdown = createDropdown({
+  trigger: elements.settingsTrigger,
+  panel: elements.settingsPanel
+});
+
+elements.settingsTrigger.addEventListener("click", () => {
+  const willOpen = !settingsDropdown.isOpen();
+  settingsDropdown.toggle();
+  if (willOpen) {
+    requestAnimationFrame(() => {
+      elements.baseUrl.focus();
+      elements.baseUrl.select();
+    });
   }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(2)}M`;
-  }
-  if (value >= 1_000) {
-    return `${Math.round(value / 1_000)}k`;
-  }
-  return value.toLocaleString();
-}
+});
 
 function setText(element, value) {
   element.textContent = String(value ?? "-");
 }
 
-function normalizeBaseUrl(value) {
-  return (value || DEFAULT_BASE_URL).replace(/\/+$/, "");
-}
-
-/**
- * Returns the validated origin (e.g. "http://localhost:3000") or null if invalid.
- * Only http://localhost and http://127.0.0.1 are allowed (any port).
- *
- * @param {string | undefined} value
- * @returns {string | null}
- */
-function validateBaseUrl(value) {
-  try {
-    const u = new URL(value || DEFAULT_BASE_URL);
-    const allowedHosts = ["localhost", "127.0.0.1"];
-    if (!allowedHosts.includes(u.hostname)) return null;
-    if (u.protocol !== "http:") return null;
-    return u.origin;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Displays an error message in the status element and auto-clears it after 5 s.
- *
- * @param {string} message
- */
 function showUrlError(message) {
   if (elements.statusText) {
-    elements.statusText.classList.remove("error");
     elements.statusText.classList.add("error");
     elements.statusText.textContent = message;
     setTimeout(() => {
@@ -211,6 +193,7 @@ elements.saveUrl.addEventListener("click", async () => {
   elements.baseUrl.value = clean;
   await storageSet(STORAGE_KEY, clean);
   await refresh();
+  settingsDropdown.close();
 });
 
 elements.syncNow.addEventListener("click", async () => {

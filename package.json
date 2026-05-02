@@ -1,6 +1,6 @@
 {
   "name": "cc-dashboard",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Local Claude Code usage dashboard.",
   "private": true,
   "scripts": {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CC dashboard",
   "description": "Side panel for a local Claude Code usage dashboard.",
-  "version": "0.3.0",
+  "version": "0.5.1",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "storage"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],

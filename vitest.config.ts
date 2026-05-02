@@ -7,11 +7,17 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "extension/chrome/**/*.test.{js,ts}"
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["src/**/*.{ts,tsx}"],
+      include: [
+        "src/**/*.{ts,tsx}",
+        "extension/chrome/sidepanel-utils.js"
+      ],
       exclude: [
         "src/**/*.test.{ts,tsx}",
         "src/test/**",

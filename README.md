@@ -1,4 +1,4 @@
-# CC dashboard v0.4.0
+# CC dashboard v0.5.1
 
 **CC dashboard** is a local-first analytics dashboard for Claude Code usage. It shows sessions, projects, token trends, cost estimates, active sessions and plan utilization, and can run as a web app, Docker container, Windows service, or Chrome side panel.
 
@@ -7,7 +7,7 @@
 ![React](https://img.shields.io/badge/React-19-61dafb.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Version](https://img.shields.io/badge/version-0.4.0-orange.svg)
+![Version](https://img.shields.io/badge/version-0.5.1-orange.svg)
 
 ## About
 

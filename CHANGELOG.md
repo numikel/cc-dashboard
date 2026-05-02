@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.1] — 2026-05-02
+
+### UI / Extension
+- Chrome side panel: **Local API URL** form moved into a new gear-icon dropdown in the top-right of the hero block (`role="dialog"`, ESC closes + returns focus, click-outside closes, save auto-closes). The dropdown also hosts the `Open full dashboard ↗` link.
+- Chrome side panel: reordered the 2×2 overview cards to **Sessions / Active / Total tokens / Top model** so the most-watched counters sit on top.
+- Chrome side panel: moved the **Plan usage** panel directly under the hero (above the overview cards) so plan utilization is the first thing visible.
+- Chrome side panel: removed the standalone `<footer>` (link relocated to the gear menu) and synced `extension/chrome/manifest.json` to `0.5.1`.
+
+### Code quality
+- Extracted pure helpers (`validateBaseUrl`, `normalizeBaseUrl`, `formatTokens`) and a new `createDropdown` factory into `extension/chrome/sidepanel-utils.js`; `sidepanel.js` is now a thin ES-module orchestrator.
+
+### Configuration
+- `next.config.ts`: moved `experimental.typedRoutes` to the top-level `typedRoutes` (promoted to stable in Next.js 16); silences the dev-server warning.
+
+### Testing
+- +18 new unit tests for the extension under `extension/chrome/` (URL validation edge cases incl. IPv6 loopback rejection + dropdown toggle/ESC/click-outside/`onClose` semantics). `vitest.config.ts` extended to cover `extension/chrome/**`.
+
 ## [0.5.0] — 2026-05-01
 
 ### Database / Architecture
